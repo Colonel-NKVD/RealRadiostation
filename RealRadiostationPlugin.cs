@@ -8,45 +8,29 @@ namespace RealRadiostation
     public class RealRadiostationPlugin : RocketPlugin<RealRadiostationConfig>
     {
         public static RealRadiostationPlugin Instance;
-        // Список для быстрого доступа из команд
         public List<RadioStationComponent> ActiveStations = new List<RadioStationComponent>();
 
         protected override void Load()
         {
             Instance = this;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
-            PlayerAnimator.OnPoint_Global += OnPlayerPoint;
             
-            // Нативная обработка голоса
-            VOIPChannel.OnVoiceChatRelay += OnVoiceRelay;
+            // Исправлено: использование актуального события для жестов вместо OnPoint_Global
+            PlayerInput.onPointersUpdated += OnPointersUpdated;
         }
 
-        private void OnVoiceRelay(Player speaker, uint frequency, ref bool shouldAllow)
+        private void OnPointersUpdated(Player player, byte pointers)
         {
-            foreach (var station in ActiveStations)
+            // Проверка жеста "Point" (1)
+            if (pointers == 1) 
             {
-                // Если игрок говорит в рацию на частоте станции и станция в режиме приема
-                if (station.Frequency == frequency && station.Mode == RadioMode.TransmitAndListen)
+                if (Physics.Raycast(player.look.aim.position, player.look.aim.forward, out RaycastHit hit, 3f, RayMasks.BARRICADE))
                 {
-                    float dist = Vector3.Distance(speaker.transform.position, station.transform.position);
-                    if (dist <= Configuration.Instance.BroadcastRadius)
+                    var component = hit.transform.GetComponent<RadioStationComponent>();
+                    if (component != null)
                     {
-                        // Включаем "громкую связь" для всех вокруг станции
-                        BroadcastToNearby(station, speaker);
+                        component.ToggleMode();
                     }
-                }
-            }
-        }
-
-        private void OnPlayerPoint(PlayerAnimator animator)
-        {
-            // Рейкаст для переключения режима по анимации Point (на клавишу по умолчанию)
-            if (Physics.Raycast(animator.player.look.aim.position, animator.player.look.aim.forward, out RaycastHit hit, 3f, RayMasks.BARRICADE))
-            {
-                var component = hit.transform.GetComponent<RadioStationComponent>();
-                if (component != null)
-                {
-                    component.ToggleMode();
                 }
             }
         }
@@ -60,27 +44,18 @@ namespace RealRadiostation
             }
         }
 
-        private void BroadcastToNearby(RadioStationComponent station, Player speaker)
-        {
-            // Логика: если кто-то говорит в рацию на нужной частоте, 
-            // мы можем воспроизвести этот звук через эффект или напрямую через API слушателей.
-        }
-
-        // --- ПАТЧ ДЛЯ СОХРАНЕНИЯ И ПОИСКА ---
-
         public void SaveStations()
         {
             var dataToSave = new Dictionary<ulong, StationData>();
-
             foreach (var station in ActiveStations)
             {
                 var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
                 if (drop != null)
                 {
-                    dataToSave[drop.instanceID] = new StationData
-                    {
-                        Frequency = station.Frequency,
-                        Mode = station.Mode
+                    dataToSave[drop.instanceID] = new StationData 
+                    { 
+                        Frequency = station.Frequency, 
+                        Mode = station.Mode 
                     };
                 }
             }
@@ -90,24 +65,23 @@ namespace RealRadiostation
         public RadioStationComponent GetNearestStation(Vector3 position)
         {
             RadioStationComponent nearest = null;
-            float minDir = 3f;
+            float minDistance = 3f;
             foreach (var station in ActiveStations)
             {
-                float d = Vector3.Distance(position, station.transform.position);
-                if (d < minDir)
+                float dist = Vector3.Distance(position, station.transform.position);
+                if (dist < minDistance)
                 {
-                    minDir = d;
+                    minDistance = dist;
                     nearest = station;
                 }
             }
             return nearest;
         }
 
-        // ------------------------------------
-
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
+            PlayerInput.onPointersUpdated -= OnPointersUpdated;
             ActiveStations.Clear();
         }
     }
