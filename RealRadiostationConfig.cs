@@ -6,9 +6,11 @@ namespace RealRadiostation
     {
         public ushort RadioBarricadeId { get; set; }
         public float BroadcastRadius { get; set; }
-        public void Defaults()
+
+        // Исправлено: метод переименован в LoadDefaults для соответствия интерфейсу IDefaultable
+        public void LoadDefaults()
         {
-            RadioBarricadeId = 12345; // Замените на ID вашей баррикады
+            RadioBarricadeId = 12345;
             BroadcastRadius = 40f;
         }
     }
