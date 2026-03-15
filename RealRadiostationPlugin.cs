@@ -14,11 +14,12 @@ namespace RealRadiostation
         {
             Instance = this;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
+            // После перезагрузки конфига через /rocket reload плагин будет использовать новый ID
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
-            // Здесь мы берем ID напрямую из конфига, чтобы изменения применялись после рестарта/релоада
+            // Прямое обращение к текущему конфигу гарантирует актуальность ID
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
                 var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
