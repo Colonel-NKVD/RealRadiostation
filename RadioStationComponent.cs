@@ -8,7 +8,6 @@ namespace RealRadiostation
 
     public class RadioStationComponent : MonoBehaviour
     {
-        // Исправлено: тип изменен на float для поддержки частот с точкой
         public float Frequency { get; set; } = 0f;
         public RadioMode Mode { get; set; } = RadioMode.ListenOnly;
 
@@ -16,8 +15,17 @@ namespace RealRadiostation
         {
             Mode = Mode == RadioMode.ListenOnly ? RadioMode.TransmitAndListen : RadioMode.ListenOnly;
             
-            string message = $"Режим радиостанции изменен на: {(Mode == RadioMode.ListenOnly ? "Только прослушивание" : "Прием и передача")}";
+            string message = $"Режим радиостанции: {(Mode == RadioMode.ListenOnly ? "Только прием" : "Прием и передача")}";
             ChatManager.say(CSteamID.Nil, message, Color.yellow, EChatMode.LOCAL);
+        }
+
+        // Защита от утечек памяти: удаляем станцию из кэша при её уничтожении
+        private void OnDestroy()
+        {
+            if (RealRadiostationPlugin.Instance != null && RealRadiostationPlugin.Instance.ActiveStations.Contains(this))
+            {
+                RealRadiostationPlugin.Instance.ActiveStations.Remove(this);
+            }
         }
     }
 }
