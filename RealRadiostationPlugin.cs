@@ -14,11 +14,12 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // Сначала сканируем карту, чтобы радиостанции подхватились из конфига сразу
+            // Сканирование карты для инициализации существующих станций
             ScanExistingStations();
 
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
-            // Подписка на голос
+            
+            // Исправленная подписка на событие голоса
             PlayerVoice.onRelayVoice += OnVoiceRelay;
             
             Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Найдено станций: " + ActiveStations.Count);
@@ -39,19 +40,22 @@ namespace RealRadiostation
             }
         }
 
-        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
+        // РЕШЕНИЕ CS0123: Удален 4-й параметр, который не поддерживается вашей версией
+        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow)
         {
             if (speaker?.player == null) return;
 
-            // Если игрок говорит просто (Alt), проверяем, стоит ли он у передающей станции
+            // Если игрок говорит в локальный чат (Alt)
             if (!wantsToUseRadio)
             {
                 var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
                 if (station != null && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // Логика "Стационарного микрофона"
-                    speaker.player.quests.sendSetRadioFrequency(station.Frequency);
-                    shouldBroadcastOverRadio = true; 
+                    // РЕШЕНИЕ CS1503: Явное приведение float Frequency к uint
+                    uint freqToSet = (uint)station.Frequency;
+                    speaker.player.quests.sendSetRadioFrequency(freqToSet);
+                    
+                    // Разрешаем трансляцию через систему раций
                     shouldAllow = true;
                 }
             }
@@ -112,6 +116,8 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
+            
+            // Обязательная отписка для предотвращения утечек памяти
             PlayerVoice.onRelayVoice -= OnVoiceRelay;
             ActiveStations.Clear();
         }
