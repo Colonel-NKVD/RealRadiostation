@@ -13,16 +13,18 @@ namespace RealRadiostation
         protected override void Load()
         {
             Instance = this;
-            
-            // 1. Сканируем карту на наличие существующих радиостанций (чтобы конфиг работал сразу)
-            ScanMapForRadios();
 
-            // 2. Подписываемся на события
+            // Сначала сканируем карту, чтобы радиостанции подхватились из конфига сразу
+            ScanExistingStations();
+
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
+            // Подписка на голос
             PlayerVoice.onRelayVoice += OnVoiceRelay;
+            
+            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Найдено станций: " + ActiveStations.Count);
         }
 
-        private void ScanMapForRadios()
+        private void ScanExistingStations()
         {
             ActiveStations.Clear();
             foreach (var region in BarricadeManager.regions)
@@ -31,7 +33,7 @@ namespace RealRadiostation
                 {
                     if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
                     {
-                        AddRadioComponent(drop);
+                        AddStationComponent(drop);
                     }
                 }
             }
@@ -39,15 +41,15 @@ namespace RealRadiostation
 
         private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
         {
-            if (speaker == null || speaker.player == null) return;
+            if (speaker?.player == null) return;
 
-            // Если игрок говорит просто голосом (Alt), проверяем, стоит ли он у радиостанции передачи
+            // Если игрок говорит просто (Alt), проверяем, стоит ли он у передающей станции
             if (!wantsToUseRadio)
             {
-                var station = GetNearestStation(speaker.player.transform.position, 3f);
+                var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
                 if (station != null && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // ПРОФЕССИОНАЛЬНЫЙ ХАК: временно синхронизируем частоту игрока с частотой станции
+                    // Логика "Стационарного микрофона"
                     speaker.player.quests.sendSetRadioFrequency(station.Frequency);
                     shouldBroadcastOverRadio = true; 
                     shouldAllow = true;
@@ -59,11 +61,11 @@ namespace RealRadiostation
         {
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
-                AddRadioComponent(drop);
+                AddStationComponent(drop);
             }
         }
 
-        private void AddRadioComponent(BarricadeDrop drop)
+        private void AddStationComponent(BarricadeDrop drop)
         {
             if (drop.model.gameObject.GetComponent<RadioStationComponent>() == null)
             {
@@ -72,14 +74,16 @@ namespace RealRadiostation
             }
         }
 
-        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance = 3f)
+        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance)
         {
             RadioStationComponent nearest = null;
             float minSqrDist = maxDistance * maxDistance;
 
-            foreach (var station in ActiveStations)
+            for (int i = ActiveStations.Count - 1; i >= 0; i--)
             {
-                if (station == null) continue;
+                var station = ActiveStations[i];
+                if (station == null) { ActiveStations.RemoveAt(i); continue; }
+
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
                 if (sqrDist < minSqrDist)
                 {
