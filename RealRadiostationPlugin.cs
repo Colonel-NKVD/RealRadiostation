@@ -14,25 +14,6 @@ namespace RealRadiostation
         {
             Instance = this;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
-            
-            // Исправлено: используем GestureManager для отслеживания анимаций
-            PlayerAnimator.OnGestureChanged_Global += OnGestureChanged;
-        }
-
-        private void OnGestureChanged(Player player, EPlayerGesture gesture)
-        {
-            // Проверяем жест "Point"
-            if (gesture == EPlayerGesture.POINT) 
-            {
-                if (Physics.Raycast(player.look.aim.position, player.look.aim.forward, out RaycastHit hit, 3f, RayMasks.BARRICADE))
-                {
-                    var component = hit.transform.GetComponent<RadioStationComponent>();
-                    if (component != null)
-                    {
-                        component.ToggleMode();
-                    }
-                }
-            }
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
@@ -81,8 +62,6 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            // Исправлено: отписка от корректного события
-            PlayerAnimator.OnGestureChanged_Global -= OnGestureChanged;
             ActiveStations.Clear();
         }
     }
