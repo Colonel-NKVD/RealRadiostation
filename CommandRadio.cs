@@ -43,6 +43,9 @@ namespace RealRadiostation
             if (nearestStation != null)
             {
                 nearestStation.Frequency = newFreq;
+                // Адаптация: сохраняем изменения в файл после установки частоты
+                RealRadiostationPlugin.Instance.SaveStations(); 
+                
                 UnturnedChat.Say(player, $"Частота радиостанции установлена на: {newFreq} MHz", Color.cyan);
             }
             else
