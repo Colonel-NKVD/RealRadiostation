@@ -4,6 +4,7 @@ using Rocket.Unturned.Player;
 using System.Collections.Generic;
 using UnityEngine;
 using SDG.Unturned;
+using System.Globalization;
 
 namespace RealRadiostation
 {
@@ -20,33 +21,23 @@ namespace RealRadiostation
         {
             UnturnedPlayer player = (UnturnedPlayer)caller;
 
-            if (command.Length != 1 || !uint.TryParse(command[0], out uint newFreq))
+            // Используем float для поддержки дробных частот и обрабатываем разделители (точка/запятая)
+            if (command.Length != 1 || !float.TryParse(command[0].Replace(',', '.'), NumberStyles.Any, CultureInfo.InvariantCulture, out float newFreq))
             {
-                UnturnedChat.Say(player, "Использование: /radio <частота>", Color.red);
+                UnturnedChat.Say(player, "Использование: /radio <частота> (например, 111.111)", Color.red);
                 return;
             }
 
-            // Ищем ближайшую радиостанцию в небольшом радиусе
-            RadioStationComponent nearestStation = null;
-            float minDistance = 3f; 
-
-            foreach (var station in RealRadiostationPlugin.Instance.ActiveStations)
-            {
-                float dist = Vector3.Distance(player.Position, station.transform.position);
-                if (dist < minDistance)
-                {
-                    minDistance = dist;
-                    nearestStation = station;
-                }
-            }
+            // Ищем ближайшую радиостанцию
+            RadioStationComponent nearestStation = RealRadiostationPlugin.Instance.GetNearestStation(player.Position);
 
             if (nearestStation != null)
             {
                 nearestStation.Frequency = newFreq;
-                // Адаптация: сохраняем изменения в файл после установки частоты
+                // Сохраняем изменения в файл StationsData.json
                 RealRadiostationPlugin.Instance.SaveStations(); 
                 
-                UnturnedChat.Say(player, $"Частота радиостанции установлена на: {newFreq} MHz", Color.cyan);
+                UnturnedChat.Say(player, $"Частота радиостанции установлена на: {newFreq:F3} MHz", Color.cyan);
             }
             else
             {
