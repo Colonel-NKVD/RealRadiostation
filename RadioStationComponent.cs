@@ -8,7 +8,7 @@ namespace RealRadiostation
 
     public class RadioStationComponent : MonoBehaviour
     {
-        public uint Frequency { get; set; } = 0;
+        public uint Frequency { get; set; } = 0f;
         public RadioMode Mode { get; set; } = RadioMode.ListenOnly;
 
         public void ToggleMode()
