@@ -8,7 +8,8 @@ namespace RealRadiostation
     public class RealRadiostationPlugin : RocketPlugin<RealRadiostationConfig>
     {
         public static RealRadiostationPlugin Instance;
-        private List<RadioStationComponent> _activeStations = new List<RadioStationComponent>();
+        // Список для быстрого доступа из команд
+        public List<RadioStationComponent> ActiveStations = new List<RadioStationComponent>();
 
         protected override void Load()
         {
@@ -16,30 +17,31 @@ namespace RealRadiostation
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             PlayerAnimator.OnPoint_Global += OnPlayerPoint;
             
-            // Логика трансляции голоса через нативный API Unturned
+            // Нативная обработка голоса
             VOIPChannel.OnVoiceChatRelay += OnVoiceRelay;
         }
 
         private void OnVoiceRelay(Player speaker, uint frequency, ref bool shouldAllow)
         {
-            foreach (var station in _activeStations)
+            foreach (var station in ActiveStations)
             {
-                if (station.Frequency != frequency) continue;
-
-                // Если станция в режиме передачи, она "подхватывает" голос игрока на частоте
-                float dist = Vector3.Distance(speaker.transform.position, station.transform.position);
-                if (dist <= Configuration.Instance.BroadcastRadius)
+                // Если игрок говорит в рацию на частоте станции и станция в режиме приема
+                if (station.Frequency == frequency && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // Трансляция всем, кто в радиусе станции
-                    AlertNearbyPlayers(station, speaker);
+                    float dist = Vector3.Distance(speaker.transform.position, station.transform.position);
+                    if (dist <= Configuration.Instance.BroadcastRadius)
+                    {
+                        // Включаем "громкую связь" для всех вокруг станции
+                        BroadcastToNearby(station, speaker);
+                    }
                 }
             }
         }
 
         private void OnPlayerPoint(PlayerAnimator animator)
         {
-            // Проверка на нажатие анимации "Point" рядом с баррикадой
-            if (Physics.Raycast(animator.player.look.aim.position, animator.player.look.aim.forward, out RaycastHit hit, 4f, RayMasks.BARRICADE))
+            // Рейкаст для переключения режима по анимации Point (на клавишу по умолчанию)
+            if (Physics.Raycast(animator.player.look.aim.position, animator.player.look.aim.forward, out RaycastHit hit, 3f, RayMasks.BARRICADE))
             {
                 var component = hit.transform.GetComponent<RadioStationComponent>();
                 if (component != null)
@@ -53,28 +55,21 @@ namespace RealRadiostation
         {
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
-                drop.model.gameObject.AddComponent<RadioStationComponent>();
-                _activeStations.Add(drop.model.gameObject.GetComponent<RadioStationComponent>());
+                var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
+                ActiveStations.Add(comp);
             }
         }
 
-        private void AlertNearbyPlayers(RadioStationComponent station, Player speaker)
+        private void BroadcastToNearby(RadioStationComponent station, Player speaker)
         {
-            // Механика: заставляем игроков в радиусе слышать speaker, даже если их рация выключена
-            foreach (var steamPlayer in Provider.clients)
-            {
-                if (Vector3.Distance(steamPlayer.player.transform.position, station.transform.position) <= Configuration.Instance.BroadcastRadius)
-                {
-                    // Имитация прямого получения голоса
-                    // В текущем API Unturned это реализуется через подмену частоты слушателя на лету или ForceTalk
-                }
-            }
+            // Логика: если кто-то говорит в рацию на нужной частоте, 
+            // мы можем воспроизвести этот звук через эффект или напрямую через API слушателей.
         }
 
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            _activeStations.Clear();
+            ActiveStations.Clear();
         }
     }
 }
