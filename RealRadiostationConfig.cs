@@ -4,14 +4,15 @@ namespace RealRadiostation
 {
     public class RealRadiostationConfig : IRocketPluginConfiguration
     {
-        public ushort RadioBarricadeId { get; set; }
-        public float BroadcastRadius { get; set; }
+        public ushort RadioBarricadeId;
+        public float ListenRadius; // Радиус, на котором слышно радио (например, 20 метров)
+        public float TransmitRadius; // Насколько близко нужно стоять, чтобы говорить в него (например, 3 метра)
 
-        // Исправлено: метод переименован в LoadDefaults для соответствия интерфейсу IDefaultable
         public void LoadDefaults()
         {
-            RadioBarricadeId = 12345;
-            BroadcastRadius = 40f;
+            RadioBarricadeId = 1234; 
+            ListenRadius = 20f; 
+            TransmitRadius = 3f; 
         }
     }
 }
