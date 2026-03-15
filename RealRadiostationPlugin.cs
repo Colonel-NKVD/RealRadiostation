@@ -66,6 +66,45 @@ namespace RealRadiostation
             // мы можем воспроизвести этот звук через эффект или напрямую через API слушателей.
         }
 
+        // --- ПАТЧ ДЛЯ СОХРАНЕНИЯ И ПОИСКА ---
+
+        public void SaveStations()
+        {
+            var dataToSave = new Dictionary<ulong, StationData>();
+
+            foreach (var station in ActiveStations)
+            {
+                var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
+                if (drop != null)
+                {
+                    dataToSave[drop.instanceID] = new StationData
+                    {
+                        Frequency = station.Frequency,
+                        Mode = station.Mode
+                    };
+                }
+            }
+            DataStorage.Save(dataToSave);
+        }
+
+        public RadioStationComponent GetNearestStation(Vector3 position)
+        {
+            RadioStationComponent nearest = null;
+            float minDir = 3f;
+            foreach (var station in ActiveStations)
+            {
+                float d = Vector3.Distance(position, station.transform.position);
+                if (d < minDir)
+                {
+                    minDir = d;
+                    nearest = station;
+                }
+            }
+            return nearest;
+        }
+
+        // ------------------------------------
+
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
