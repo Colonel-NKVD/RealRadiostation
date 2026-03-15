@@ -18,11 +18,11 @@ jobs:
       run: nuget restore RealRadiostation.csproj
 
     - name: Build
-      run: msbuild RealRadiostation.csproj /p:Configuration=Release /p:TargetFramework=net48
+      run: msbuild RealRadiostation.csproj /p:Configuration=Release
 
     - name: Upload DLL
       uses: actions/upload-artifact@v4
       with:
         name: RealRadiostation-Release
-        # Исправленный путь с учетом папки конфигурации и фреймворка
-        path: bin/Release/net48/RealRadiostation.dll
+        # Теперь путь совпадает с настройками csproj
+        path: bin/RealRadiostation.dll
