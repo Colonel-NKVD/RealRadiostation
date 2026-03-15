@@ -25,6 +25,7 @@ namespace RealRadiostation
             }
         }
 
+        // Метод сохранения данных всех активных станций
         public void SaveStations()
         {
             var dataToSave = new Dictionary<ulong, StationData>();
@@ -43,6 +44,7 @@ namespace RealRadiostation
             DataStorage.Save(dataToSave);
         }
 
+        // Поиск ближайшей станции в радиусе 3 метров
         public RadioStationComponent GetNearestStation(Vector3 position)
         {
             RadioStationComponent nearest = null;
