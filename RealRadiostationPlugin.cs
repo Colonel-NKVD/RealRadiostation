@@ -13,103 +13,77 @@ namespace RealRadiostation
         protected override void Load()
         {
             Instance = this;
-            BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            // Подключаемся к глубокому API маршрутизации голоса Unturned
+            // 1. Сканируем карту на наличие существующих радиостанций (чтобы конфиг работал сразу)
+            ScanMapForRadios();
+
+            // 2. Подписываемся на события
+            BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             PlayerVoice.onRelayVoice += OnVoiceRelay;
         }
 
-        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref PlayerVoice.VoiceRouting routing)
+        private void ScanMapForRadios()
+        {
+            ActiveStations.Clear();
+            foreach (var region in BarricadeManager.regions)
+            {
+                foreach (var drop in region.drops)
+                {
+                    if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
+                    {
+                        AddRadioComponent(drop);
+                    }
+                }
+            }
+        }
+
+        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
         {
             if (speaker == null || speaker.player == null) return;
 
-            Player spkPlayer = speaker.player;
-            RadioStationComponent transmittingStation = null;
-
-            // Если игрок говорит просто голосом (не в личную рацию), проверяем, есть ли рядом стационарная рация
+            // Если игрок говорит просто голосом (Alt), проверяем, стоит ли он у радиостанции передачи
             if (!wantsToUseRadio)
             {
-                transmittingStation = GetNearestStation(spkPlayer.transform.position, Configuration.Instance.TransmitRadius);
-                
-                if (transmittingStation != null && transmittingStation.Mode == RadioMode.TransmitAndListen)
+                var station = GetNearestStation(speaker.player.transform.position, 3f);
+                if (station != null && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // Включаем характерный эффект рации ("пшш") для атмосферы
+                    // ПРОФЕССИОНАЛЬНЫЙ ХАК: временно синхронизируем частоту игрока с частотой станции
+                    speaker.player.quests.sendSetRadioFrequency(station.Frequency);
                     shouldBroadcastOverRadio = true; 
+                    shouldAllow = true;
                 }
             }
-
-            // Внедряем нашу логику в цепочку маршрутизации пакетов
-            routing += (PlayerVoice spk, List<SteamPlayer> listeners) =>
-            {
-                float activeFrequency = 0f;
-                bool isBroadcasting = false;
-
-                // Сценарий 1: Игрок говорит в ручную рацию
-                if (wantsToUseRadio)
-                {
-                    activeFrequency = spkPlayer.quests.radioFrequency;
-                    isBroadcasting = true;
-                }
-                // Сценарий 2: Игрок говорит локально, но рядом с баррикадой передачи
-                else if (transmittingStation != null && transmittingStation.Mode == RadioMode.TransmitAndListen)
-                {
-                    activeFrequency = transmittingStation.Frequency;
-                    isBroadcasting = true;
-                }
-
-                // Если передача идет в эфир, ищем слушателей
-                if (isBroadcasting && activeFrequency > 0f)
-                {
-                    float listenRadiusSqr = Configuration.Instance.ListenRadius * Configuration.Instance.ListenRadius;
-
-                    foreach (var station in ActiveStations)
-                    {
-                        if (station == null) continue;
-
-                        // Сверяем частоты (с учетом погрешности float)
-                        if (Mathf.Abs(station.Frequency - activeFrequency) < 0.001f)
-                        {
-                            foreach (var client in Provider.clients)
-                            {
-                                // Пропускаем говорящего и тех, кто уже есть в списке слушателей
-                                if (client.player == spkPlayer || listeners.Contains(client)) continue;
-
-                                // Оптимизированная проверка дистанции (через квадраты)
-                                float sqrDist = (client.player.transform.position - station.transform.position).sqrMagnitude;
-                                if (sqrDist <= listenRadiusSqr)
-                                {
-                                    listeners.Add(client);
-                                }
-                            }
-                        }
-                    }
-                }
-            };
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
+                AddRadioComponent(drop);
+            }
+        }
+
+        private void AddRadioComponent(BarricadeDrop drop)
+        {
+            if (drop.model.gameObject.GetComponent<RadioStationComponent>() == null)
+            {
                 var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
                 ActiveStations.Add(comp);
             }
         }
 
-        // Добавлен параметр maxDistance для гибкого поиска
         public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance = 3f)
         {
             RadioStationComponent nearest = null;
-            float minDistanceSqr = maxDistance * maxDistance;
+            float minSqrDist = maxDistance * maxDistance;
 
             foreach (var station in ActiveStations)
             {
                 if (station == null) continue;
-
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
-                if (sqrDist < minDistanceSqr)
+                if (sqrDist < minSqrDist)
                 {
-                    minDistanceSqr = sqrDist;
+                    minSqrDist = sqrDist;
                     nearest = station;
                 }
             }
@@ -122,15 +96,10 @@ namespace RealRadiostation
             foreach (var station in ActiveStations)
             {
                 if (station == null) continue;
-
                 var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
                 if (drop != null)
                 {
-                    dataToSave[drop.instanceID] = new StationData 
-                    { 
-                        Frequency = station.Frequency, 
-                        Mode = station.Mode 
-                    };
+                    dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
                 }
             }
             DataStorage.Save(dataToSave);
@@ -139,7 +108,7 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            PlayerVoice.onRelayVoice -= OnVoiceRelay; // Обязательная отписка
+            PlayerVoice.onRelayVoice -= OnVoiceRelay;
             ActiveStations.Clear();
         }
     }
