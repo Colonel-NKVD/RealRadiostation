@@ -15,14 +15,14 @@ namespace RealRadiostation
             Instance = this;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            // Исправлено: использование актуального события для жестов вместо OnPoint_Global
-            PlayerInput.onPointersUpdated += OnPointersUpdated;
+            // Исправлено: используем GestureManager для отслеживания анимаций
+            PlayerAnimator.OnGestureChanged_Global += OnGestureChanged;
         }
 
-        private void OnPointersUpdated(Player player, byte pointers)
+        private void OnGestureChanged(Player player, EPlayerGesture gesture)
         {
-            // Проверка жеста "Point" (1)
-            if (pointers == 1) 
+            // Проверяем жест "Point"
+            if (gesture == EPlayerGesture.POINT) 
             {
                 if (Physics.Raycast(player.look.aim.position, player.look.aim.forward, out RaycastHit hit, 3f, RayMasks.BARRICADE))
                 {
@@ -81,7 +81,8 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            PlayerInput.onPointersUpdated -= OnPointersUpdated;
+            // Исправлено: отписка от корректного события
+            PlayerAnimator.OnGestureChanged_Global -= OnGestureChanged;
             ActiveStations.Clear();
         }
     }
