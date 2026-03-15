@@ -6,7 +6,7 @@ namespace RealRadiostation
 {
     public class StationData
     {
-        public uint Frequency { get; set; }
+        public float Frequency { get; set; }
         public RadioMode Mode { get; set; }
     }
 
