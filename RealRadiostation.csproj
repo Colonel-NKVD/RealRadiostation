@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
-    <AssemblyName>VehicleModulesSystem</AssemblyName>
+    <AssemblyName>RealRadiostation</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <OutputPath>bin\</OutputPath>
     <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
@@ -50,5 +50,4 @@
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
-
 </Project>
