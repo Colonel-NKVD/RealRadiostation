@@ -18,6 +18,7 @@ namespace RealRadiostation
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
+            // Здесь мы берем ID напрямую из конфига, чтобы изменения применялись после рестарта/релоада
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
                 var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
@@ -25,7 +26,6 @@ namespace RealRadiostation
             }
         }
 
-        // Метод сохранения данных всех активных станций
         public void SaveStations()
         {
             var dataToSave = new Dictionary<ulong, StationData>();
@@ -44,7 +44,6 @@ namespace RealRadiostation
             DataStorage.Save(dataToSave);
         }
 
-        // Поиск ближайшей станции в радиусе 3 метров
         public RadioStationComponent GetNearestStation(Vector3 position)
         {
             RadioStationComponent nearest = null;
