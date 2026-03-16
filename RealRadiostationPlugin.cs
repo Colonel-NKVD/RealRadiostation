@@ -19,20 +19,20 @@ namespace RealRadiostation
         {
             Instance = this;
             Logger.Log("-----------------------------------------------");
-            Logger.Log("[RealRadiostation] ЗАПУСК... Цель ID: 1466");
+            Logger.Log("[RealRadiostation] ИНИЦИАЛИЗАЦИЯ (ID: 1466)");
 
             harmony = new Harmony("com.realradiostation.patch");
 
-            // Ищем метод, ИСКЛЮЧАЯ методы подписки (add_ / remove_)
+            // Улучшенный поиск метода: исключаем системные методы событий
             var allMethods = typeof(PlayerVoice).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
             MethodInfo targetMethod = null;
 
             foreach (var m in allMethods)
             {
-                string n = m.Name.ToLower();
-                // Нам нужен основной метод ретрансляции, а не обработчики событий
-                if ((n.Contains("relayvoice") || n.Contains("receiverelayvoice")) 
-                    && !n.StartsWith("add_") && !n.StartsWith("remove_") && !n.Contains("handler"))
+                string n = m.Name;
+                // Ищем метод передачи, который НЕ является подпиской (add_/remove_) и НЕ является делегатом
+                if ((n.Contains("RelayVoice") || n.Contains("receiveRelayVoice")) 
+                    && !n.StartsWith("add_") && !n.StartsWith("remove_") && !n.Contains("Handler"))
                 {
                     targetMethod = m;
                     break;
@@ -43,11 +43,11 @@ namespace RealRadiostation
             {
                 var prefix = typeof(VoicePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public);
                 harmony.Patch(targetMethod, new HarmonyMethod(prefix));
-                Logger.Log($"[DEBUG SUCCESS] Harmony успешно привязан к: {targetMethod.Name}");
+                Logger.Log($"[DEBUG SUCCESS] Harmony привязан к ПРАВИЛЬНОМУ методу: {targetMethod.Name}");
             }
             else
             {
-                Logger.LogError("[DEBUG FATAL] Метод передачи голоса не найден!");
+                Logger.LogError("[DEBUG FATAL] Метод ретрансляции голоса не найден!");
             }
 
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
@@ -71,14 +71,14 @@ namespace RealRadiostation
             foreach (var region in BarricadeManager.regions)
                 foreach (var drop in region.drops)
                     if (drop.asset.id == 1466) AddStationComponent(drop);
-            Logger.Log($"[DEBUG] Скан завершен. Активно станций 1466: {ActiveStations.Count}");
+            Logger.Log($"[DEBUG] Загружено станций из мира: {ActiveStations.Count}");
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
             if (drop.asset.id == 1466)
             {
-                Logger.Log($"[DEBUG] Станция 1466 установлена! instanceID: {drop.instanceID}");
+                Logger.Log($"[DEBUG] Новая станция 1466 обнаружена (Instance: {drop.instanceID})");
                 AddStationComponent(drop);
             }
         }
@@ -103,10 +103,22 @@ namespace RealRadiostation
             }
 
             if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
-            Logger.Log($"[DEBUG] Станция активирована: {hash} | Частота: {comp.Frequency}");
+            Logger.Log($"[DEBUG] Станция активна: {hash} | Частота: {comp.Frequency}");
         }
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
+
+        // Этот метод теперь называется SaveAllStations, как того требует CommandRadio.cs
+        public void SaveAllStations()
+        {
+            var dict = new Dictionary<string, StationData>();
+            foreach (var s in ActiveStations)
+            {
+                if (s != null) dict[GetPosHash(s.transform.position)] = new StationData { Frequency = s.Frequency, Mode = s.Mode };
+            }
+            DataStorage.Save(dict);
+            Logger.Log($"[DEBUG] Успешное сохранение {dict.Count} станций в JSON.");
+        }
 
         public RadioStationComponent GetNearestStation(Vector3 position, float radius)
         {
