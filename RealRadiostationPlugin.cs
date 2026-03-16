@@ -1,6 +1,7 @@
 using Rocket.Core.Plugins;
 using SDG.Unturned;
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 using Logger = Rocket.Core.Logging.Logger;
 
@@ -15,15 +16,14 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // Используем официальный API Unturned вместо нестабильного Harmony!
+            // Нативный API Unturned для перехвата голоса
             PlayerVoice.onRelayVoice += OnRelayVoice;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             Level.onPostLevelLoaded += OnLevelLoaded;
 
-            // Если плагин перезагружают на лету (когда карта уже загружена)
             if (Level.isLoaded) OnLevelLoaded(0);
 
-            Logger.Log("[RealRadiostation] Плагин загружен. Используется нативный API (без Harmony)!");
+            Logger.Log("[RealRadiostation] Плагин успешно загружен!");
         }
 
         private void OnLevelLoaded(int level)
@@ -31,7 +31,6 @@ namespace RealRadiostation
             ActiveStations.Clear();
             if (BarricadeManager.regions == null) return;
 
-            int count = 0;
             foreach (var region in BarricadeManager.regions)
             {
                 foreach (var drop in region.drops)
@@ -39,11 +38,10 @@ namespace RealRadiostation
                     if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
                     {
                         AddStationComponent(drop);
-                        count++;
                     }
                 }
             }
-            Logger.Log($"[DEBUG] Карта загружена. Найдено радиостанций (ID {Configuration.Instance.RadioBarricadeId}): {count}");
+            Logger.Log($"[DEBUG] Поиск завершен. Станций в мире: {ActiveStations.Count}");
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
@@ -51,16 +49,14 @@ namespace RealRadiostation
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
                 AddStationComponent(drop);
-                Logger.Log("[DEBUG] Игрок поставил новую радиостанцию!");
             }
         }
 
         private void AddStationComponent(BarricadeDrop drop)
         {
-            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>();
-            if (comp == null) comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
+            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() 
+                       ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
 
-            // Надежный хэш по координатам, который не меняется после рестарта
             string hash = GetPosHash(drop.model.position);
             var savedData = DataStorage.Load();
 
@@ -71,7 +67,7 @@ namespace RealRadiostation
             }
             else
             {
-                comp.Frequency = 111111; // Волна по умолчанию (111.111)
+                comp.Frequency = 111111; // 111.111
                 comp.Mode = RadioMode.TransmitAndListen;
             }
 
@@ -80,35 +76,20 @@ namespace RealRadiostation
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
 
-        // ТОТ САМЫЙ ПЕРЕХВАТЧИК ГОЛОСА
         private void OnRelayVoice(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
         {
-            if (speaker == null || speaker.player == null) return;
+            if (speaker?.player == null || wantsToUseRadio) return;
 
-            string pName = speaker.player.channel.owner.playerID.characterName;
-
-            // Если игрок говорит просто в пространство (нажал Alt/V, а не рацию)
-            if (!wantsToUseRadio)
+            var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
+            
+            if (station != null && station.Mode == RadioMode.TransmitAndListen)
             {
-                var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
+                Logger.Log($"[DEBUG VOICE] Перехват: {speaker.player.channel.owner.playerID.characterName} на частоте {station.Frequency}");
                 
-                if (station != null)
-                {
-                    Logger.Log($"[DEBUG VOICE] {pName} говорит в ауре радио (Волна: {station.Frequency}, Режим: {station.Mode})");
-
-                    if (station.Mode == RadioMode.TransmitAndListen)
-                    {
-                        // Подменяем частоту игрока на частоту станции
-                        speaker.player.quests.sendSetRadioFrequency(station.Frequency);
-                        
-                        // Заставляем игру думать, что игрок говорит в рацию
-                        shouldAllow = true;
-                        shouldBroadcastOverRadio = true;
-                        spatialBlend = 0f; // 0f делает звук "радио-подобным" (везде одинаково громко для тех, кто на волне)
-                        
-                        Logger.Log($"[DEBUG VOICE] УСПЕХ: Голос перехвачен и отправлен на волну {station.Frequency}!");
-                    }
-                }
+                speaker.player.quests.sendSetRadioFrequency(station.Frequency);
+                shouldAllow = true;
+                shouldBroadcastOverRadio = true;
+                spatialBlend = 0f; 
             }
         }
 
@@ -116,16 +97,11 @@ namespace RealRadiostation
         {
             RadioStationComponent nearest = null;
             float minSqrDist = radius * radius;
-
             foreach (var station in ActiveStations)
             {
-                if (station == null || station.gameObject == null) continue;
+                if (station == null) continue;
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
-                if (sqrDist < minSqrDist)
-                {
-                    minSqrDist = sqrDist;
-                    nearest = station;
-                }
+                if (sqrDist < minSqrDist) { minSqrDist = sqrDist; nearest = station; }
             }
             return nearest;
         }
@@ -135,10 +111,7 @@ namespace RealRadiostation
             var dict = new Dictionary<string, StationData>();
             foreach (var s in ActiveStations)
             {
-                if (s != null && s.gameObject != null)
-                {
-                    dict[GetPosHash(s.transform.position)] = new StationData { Frequency = s.Frequency, Mode = s.Mode };
-                }
+                if (s != null) dict[GetPosHash(s.transform.position)] = new StationData { Frequency = s.Frequency, Mode = s.Mode };
             }
             DataStorage.Save(dict);
         }
@@ -150,7 +123,6 @@ namespace RealRadiostation
             Level.onPostLevelLoaded -= OnLevelLoaded;
             ActiveStations.Clear();
             Instance = null;
-            Logger.Log("[RealRadiostation] Плагин выгружен.");
         }
     }
 }
