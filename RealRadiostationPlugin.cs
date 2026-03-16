@@ -4,7 +4,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
-using System.Reflection; // Добавлено для профессионального поиска методов
+using System.Reflection;
 
 namespace RealRadiostation
 {
@@ -18,10 +18,9 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // Инициализация Harmony
+            // Инициализация Harmony с расширенным поиском
             harmony = new Harmony("com.realradiostation.patch");
 
-            // ПРОФЕССИОНАЛЬНЫЙ ПАТЧ: ищем метод динамически, чтобы избежать ошибок сигнатуры
             var original = typeof(PlayerVoice).GetMethod("receiveRelayVoice", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public) 
                         ?? typeof(PlayerVoice).GetMethod("handleRelayVoiceInternal", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
@@ -30,44 +29,49 @@ namespace RealRadiostation
             if (original != null && prefix != null)
             {
                 harmony.Patch(original, new HarmonyMethod(prefix));
-                Rocket.Core.Logging.Logger.Log("Harmony: Метод передачи голоса успешно найден и пропатчен.");
+                Rocket.Core.Logging.Logger.Log($"[DEBUG] Harmony успешно привязан к методу: {original.Name}");
             }
             else
             {
-                Rocket.Core.Logging.Logger.LogError("Harmony FATAL ERROR: Не удалось найти метод для патча!");
+                Rocket.Core.Logging.Logger.LogError("[DEBUG FATAL] Метод для патча голоса НЕ НАЙДЕН в Assembly-CSharp!");
             }
 
             StartCoroutine(DeferredStationSearch());
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен успешно.");
+            Rocket.Core.Logging.Logger.Log("[DEBUG] Плагин загружен. Мониторинг говорения активен.");
         }
 
         private IEnumerator DeferredStationSearch()
         {
+            Rocket.Core.Logging.Logger.Log("[DEBUG] Ожидание прогрузки баррикад (3 сек)...");
             yield return new WaitForSeconds(3f);
             ScanExistingStations();
-            Rocket.Core.Logging.Logger.Log($"Поиск завершен. Найдено станций: {ActiveStations.Count}");
         }
 
-        private void ScanExistingStations()
+        public void ScanExistingStations()
         {
             ActiveStations.Clear();
             var allTransforms = UnityEngine.Object.FindObjectsOfType<Transform>();
+            int foundCount = 0;
+
             foreach (var t in allTransforms)
             {
                 var drop = BarricadeManager.FindBarricadeByRootTransform(t);
                 if (drop != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
                 {
                     AddStationComponent(drop);
+                    foundCount++;
                 }
             }
+            Rocket.Core.Logging.Logger.Log($"[DEBUG] Сканирование завершено. Найдено радиостанций на карте: {foundCount} (ID в конфиге: {Configuration.Instance.RadioBarricadeId})");
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
             if (drop?.asset != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
+                Rocket.Core.Logging.Logger.Log($"[DEBUG] Новая станция установлена игроком. InstanceID: {drop.instanceID}");
                 AddStationComponent(drop);
             }
         }
@@ -75,44 +79,35 @@ namespace RealRadiostation
         private void AddStationComponent(BarricadeDrop drop)
         {
             if (drop?.model == null) return;
-            var existingComp = drop.model.gameObject.GetComponent<RadioStationComponent>();
-            if (existingComp == null)
+            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
+            
+            var savedData = DataStorage.Load();
+            if (savedData != null && savedData.ContainsKey(drop.instanceID))
             {
-                var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
-                var savedData = DataStorage.Load();
-                if (savedData != null && savedData.ContainsKey(drop.instanceID))
-                {
-                    comp.Frequency = savedData[drop.instanceID].Frequency;
-                    comp.Mode = savedData[drop.instanceID].Mode;
-                }
-                ActiveStations.Add(comp);
+                comp.Frequency = savedData[drop.instanceID].Frequency;
+                comp.Mode = savedData[drop.instanceID].Mode;
             }
+
+            if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
+            Rocket.Core.Logging.Logger.Log($"[DEBUG] Станция {drop.instanceID} инициализирована. Частота: {comp.Frequency}, Режим: {comp.Mode}");
         }
 
-        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance = 3f)
+        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance)
         {
             RadioStationComponent nearest = null;
             float minSqrDist = maxDistance * maxDistance;
-            for (int i = ActiveStations.Count - 1; i >= 0; i--)
-            {
-                var station = ActiveStations[i];
-                if (station == null || station.gameObject == null) { ActiveStations.RemoveAt(i); continue; }
-                float sqrDist = (position - station.transform.position).sqrMagnitude;
-                if (sqrDist < minSqrDist) { minSqrDist = sqrDist; nearest = station; }
-            }
-            return nearest;
-        }
 
-        public void SaveStations()
-        {
-            var dataToSave = new Dictionary<ulong, StationData>();
             foreach (var station in ActiveStations)
             {
-                if (station == null) continue;
-                var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
-                if (drop != null) dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
+                if (station == null || station.gameObject == null) continue;
+                float sqrDist = (position - station.transform.position).sqrMagnitude;
+                if (sqrDist < minSqrDist)
+                {
+                    minSqrDist = sqrDist;
+                    nearest = station;
+                }
             }
-            DataStorage.Save(dataToSave);
+            return nearest;
         }
 
         protected override void Unload()
@@ -122,6 +117,7 @@ namespace RealRadiostation
             if (harmony != null) harmony.UnpatchAll("com.realradiostation.patch");
             ActiveStations.Clear();
             Instance = null;
+            Rocket.Core.Logging.Logger.Log("[DEBUG] Плагин выгружен.");
         }
     }
 }
