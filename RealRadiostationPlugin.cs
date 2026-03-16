@@ -19,33 +19,41 @@ namespace RealRadiostation
         {
             Instance = this;
             Logger.Log("-----------------------------------------------");
-            Logger.Log("[RealRadiostation] ЗАПУСК ПЛАГИНА...");
+            Logger.Log("[RealRadiostation] ЗАПУСК ПЛАГИНА (ID: 1466)");
 
-            // 1. Инициализация Harmony
-            try {
-                harmony = new Harmony("com.realradiostation.patch");
-                var original = typeof(PlayerVoice).GetMethod("receiveRelayVoice", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public) 
-                            ?? typeof(PlayerVoice).GetMethod("handleRelayVoiceInternal", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            harmony = new Harmony("com.realradiostation.patch");
 
-                var prefix = typeof(VoicePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public);
-
-                if (original != null && prefix != null) {
-                    harmony.Patch(original, new HarmonyMethod(prefix));
-                    Logger.Log($"[DEBUG] Harmony успешно привязан к методу: {original.Name}");
-                } else {
-                    Logger.LogError("[DEBUG FATAL] Не удалось найти метод PlayerVoice в коде игры!");
+            // ГЛУБОКИЙ СКАНЕР: Если метод не найден, мы выведем всё, что есть в классе
+            var allMethods = typeof(PlayerVoice).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            
+            MethodInfo targetMethod = null;
+            foreach (var m in allMethods)
+            {
+                // Ищем наиболее вероятных кандидатов по названию
+                if (m.Name.Contains("receiveRelayVoice") || m.Name.Contains("handleRelayVoiceInternal") || m.Name.Contains("RelayVoice"))
+                {
+                    targetMethod = m;
+                    break;
                 }
-            } catch (System.Exception ex) {
-                Logger.LogError($"[DEBUG ERROR] Ошибка Harmony: {ex.Message}");
             }
 
-            // 2. Подписка на события
+            if (targetMethod != null)
+            {
+                var prefix = typeof(VoicePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public);
+                harmony.Patch(targetMethod, new HarmonyMethod(prefix));
+                Logger.Log($"[DEBUG SUCCESS] Harmony привязан к методу: {targetMethod.Name}");
+            }
+            else
+            {
+                Logger.LogError("[DEBUG FATAL] Нужный метод не найден! Список доступных методов в PlayerVoice:");
+                foreach (var m in allMethods) Logger.Log($" -> {m.Name}");
+            }
+
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             Level.onPostLevelLoaded += OnLevelLoaded;
-
             if (Level.isLoaded) StartCoroutine(DeferredScan());
 
-            Logger.Log("[RealRadiostation] Плагин полностью инициализирован.");
+            Logger.Log("[RealRadiostation] Плагин готов к работе.");
             Logger.Log("-----------------------------------------------");
         }
 
@@ -58,46 +66,42 @@ namespace RealRadiostation
         private void OnLevelLoaded(int level)
         {
             ActiveStations.Clear();
-            int counter = 0;
-            if (BarricadeManager.regions != null) {
-                foreach (var region in BarricadeManager.regions) {
-                    foreach (var drop in region.drops) {
-                        if (drop.asset.id == Configuration.Instance.RadioBarricadeId) {
-                            AddStationComponent(drop);
-                            counter++;
-                        }
-                    }
-                }
-            }
-            Logger.Log($"[DEBUG] Сканирование мира: Найдено {counter} радиостанций ID {Configuration.Instance.RadioBarricadeId}");
+            if (BarricadeManager.regions == null) return;
+            foreach (var region in BarricadeManager.regions)
+                foreach (var drop in region.drops)
+                    if (drop.asset.id == 1466 || drop.asset.id == Configuration.Instance.RadioBarricadeId) AddStationComponent(drop);
+            
+            Logger.Log($"[DEBUG] Мир просканирован. Активных станций: {ActiveStations.Count}");
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
-            if (drop.asset.id == Configuration.Instance.RadioBarricadeId) {
-                Logger.Log($"[DEBUG] Игрок установил радиостанцию (ID {drop.asset.id}). Активация...");
+            if (drop.asset.id == 1466 || drop.asset.id == Configuration.Instance.RadioBarricadeId)
+            {
+                Logger.Log($"[DEBUG] Установлена станция {drop.asset.id}. Мгновенная активация.");
                 AddStationComponent(drop);
             }
         }
 
         private void AddStationComponent(BarricadeDrop drop)
         {
-            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() 
-                       ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
-
+            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
             string hash = GetPosHash(drop.model.position);
             var savedData = DataStorage.Load();
 
-            if (savedData != null && savedData.ContainsKey(hash)) {
+            if (savedData != null && savedData.ContainsKey(hash))
+            {
                 comp.Frequency = savedData[hash].Frequency;
                 comp.Mode = savedData[hash].Mode;
-            } else {
-                comp.Frequency = 111111; 
+            }
+            else
+            {
+                comp.Frequency = 111111;
                 comp.Mode = RadioMode.TransmitAndListen;
             }
 
             if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
-            Logger.Log($"[DEBUG] Радио (Pos: {hash}) готово. Волна: {comp.Frequency}, Режим: {comp.Mode}");
+            Logger.Log($"[DEBUG] Станция в реестре: {hash} | Частота: {comp.Frequency}");
         }
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
@@ -106,13 +110,11 @@ namespace RealRadiostation
         {
             RadioStationComponent nearest = null;
             float minSqrDist = radius * radius;
-            foreach (var station in ActiveStations) {
+            foreach (var station in ActiveStations)
+            {
                 if (station == null) continue;
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
-                if (sqrDist < minSqrDist) {
-                    minSqrDist = sqrDist;
-                    nearest = station;
-                }
+                if (sqrDist < minSqrDist) { minSqrDist = sqrDist; nearest = station; }
             }
             return nearest;
         }
@@ -120,11 +122,9 @@ namespace RealRadiostation
         public void SaveAllStations()
         {
             var dict = new Dictionary<string, StationData>();
-            foreach (var s in ActiveStations) {
+            foreach (var s in ActiveStations)
                 if (s != null) dict[GetPosHash(s.transform.position)] = new StationData { Frequency = s.Frequency, Mode = s.Mode };
-            }
             DataStorage.Save(dict);
-            Logger.Log("[DEBUG] Данные радиостанций сохранены в JSON.");
         }
 
         protected override void Unload()
@@ -134,7 +134,6 @@ namespace RealRadiostation
             Level.onPostLevelLoaded -= OnLevelLoaded;
             ActiveStations.Clear();
             Instance = null;
-            Logger.Log("[RealRadiostation] Плагин выгружен.");
         }
     }
 }
