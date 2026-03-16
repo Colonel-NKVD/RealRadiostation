@@ -7,37 +7,21 @@ namespace RealRadiostation
 {
     public static class VoicePatch
     {
-        public static void UniversalPrefix(PlayerVoice __instance, MethodBase __originalMethod, object[] __args)
+        public static void UniversalPrefix(object __instance, MethodBase __originalMethod)
         {
-            string methodName = __originalMethod.Name;
-
-            // Игнорируем методы-спамеры, чтобы не вешать сервер
-            if (methodName == "Update" || methodName == "FixedUpdate" || methodName.StartsWith("get_")) 
-                return;
-
-            // Логируем только важные события
-            Rocket.Core.Logging.Logger.Log($"[VOICE DETECTED] Вызван метод: {methodName} | Игрок: {__instance.player.channel.owner.playerID.characterName}");
-
-            // Проверяем, есть ли рядом станция
-            var station = RealRadiostationPlugin.Instance.GetNearestStation(__instance.player.transform.position, 10f);
-            if (station != null && station.Mode == RadioMode.TransmitAndListen)
+            // Мы ловим ВООБЩЕ ВСЁ, кроме Update.
+            // Если и это не сработает - значит голос идет через нативные методы Steam, которые Harmony не видит.
+            
+            string name = __originalMethod.Name;
+            
+            // Фильтруем только то, что похоже на передачу данных или голос
+            if (name.Contains("Voice") || name.Contains("Chat") || name.Contains("Relay") || name.Contains("Send") || name.Contains("Ask"))
             {
-                // Если мы нашли метод, который срабатывает при нажатии кнопки (например askVoiceChat)
-                // то пытаемся подменить параметры
-                if (__args != null)
-                {
-                    for (int i = 0; i < __args.Length; i++)
-                    {
-                        if (__args[i] is bool)
-                        {
-                            __args[i] = true; // Пытаемся заставить игру использовать радио
-                            Rocket.Core.Logging.Logger.Log($"[ACTION] Аргумент {i} в методе {methodName} изменен на TRUE (Радио режим)");
-                        }
-                    }
-                }
-                
-                // Силовая установка частоты
-                __instance.player.quests.sendSetRadioFrequency(station.Frequency);
+                string playerName = "Unknown";
+                if (__instance is PlayerVoice pv) playerName = pv.player.channel.owner.playerID.characterName;
+                if (__instance is PlayerQuests pq) playerName = pq.player.channel.owner.playerID.characterName;
+
+                Rocket.Core.Logging.Logger.Log($"[GLOBAL HIT] Метод: {name} | Класс: {__originalMethod.DeclaringType.Name} | Игрок: {playerName}");
             }
         }
     }
