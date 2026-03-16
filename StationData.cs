@@ -5,7 +5,6 @@ using UnityEngine;
 
 namespace RealRadiostation
 {
-    // Объявляем ОДИН раз здесь
     public enum RadioMode { ListenOnly, TransmitAndListen }
 
     public class StationData
