@@ -13,13 +13,10 @@ namespace RealRadiostation
         protected override void Load()
         {
             Instance = this;
-
-            // Сканирование карты для инициализации существующих станций
             ScanExistingStations();
-
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            // Исправленная подписка на событие голоса
+            // Подписка на голос (тестируем 5-параметровую версию)
             PlayerVoice.onRelayVoice += OnVoiceRelay;
             
             Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Найдено станций: " + ActiveStations.Count);
@@ -40,23 +37,22 @@ namespace RealRadiostation
             }
         }
 
-        // РЕШЕНИЕ CS0123: Удален 4-й параметр, который не поддерживается вашей версией
-        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow)
+        // РЕШЕНИЕ CS0123: Тестируем самую полную сигнатуру из новых версий Unturned
+        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
         {
             if (speaker?.player == null) return;
 
-            // Если игрок говорит в локальный чат (Alt)
             if (!wantsToUseRadio)
             {
                 var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
                 if (station != null && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // РЕШЕНИЕ CS1503: Явное приведение float Frequency к uint
+                    // РЕШЕНИЕ CS1503: Явное приведение типа
                     uint freqToSet = (uint)station.Frequency;
                     speaker.player.quests.sendSetRadioFrequency(freqToSet);
                     
-                    // Разрешаем трансляцию через систему раций
                     shouldAllow = true;
+                    shouldBroadcastOverRadio = true; 
                 }
             }
         }
@@ -78,7 +74,8 @@ namespace RealRadiostation
             }
         }
 
-        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance)
+        // РЕШЕНИЕ CS7036: Добавлено значение по умолчанию (maxDistance = 3f)
+        public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance = 3f)
         {
             RadioStationComponent nearest = null;
             float minSqrDist = maxDistance * maxDistance;
@@ -116,8 +113,6 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            
-            // Обязательная отписка для предотвращения утечек памяти
             PlayerVoice.onRelayVoice -= OnVoiceRelay;
             ActiveStations.Clear();
         }
