@@ -1,6 +1,6 @@
 using Rocket.Core.Plugins;
 using SDG.Unturned;
-using UnityEngine; // Обязательно для Vector3
+using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
@@ -19,11 +19,11 @@ namespace RealRadiostation
         {
             Instance = this;
             Logger.Log("-----------------------------------------------");
-            Logger.Log("[RealRadiostation] ЗАПУСК ДЕТЕКТОР-ПАТЧА...");
+            Logger.Log("[RealRadiostation] ВОССТАНОВЛЕНИЕ И ДИАГНОСТИКА...");
 
             harmony = new Harmony("com.realradiostation.patch");
 
-            // Список всех возможных методов-претендентов для разных версий Unturned
+            // Список методов для поиска рабочего захвата голоса
             string[] voiceMethods = { "askVoiceChat", "receiveVoiceChat", "handleVoiceChat", "ReceiveVoice" };
             
             int patchCount = 0;
@@ -46,7 +46,7 @@ namespace RealRadiostation
             
             if (Level.isLoaded) ScanStations();
 
-            Logger.Log("[RealRadiostation] Режим детектива активен.");
+            Logger.Log("[RealRadiostation] Плагин готов к работе.");
             Logger.Log("-----------------------------------------------");
         }
 
@@ -60,28 +60,74 @@ namespace RealRadiostation
         {
             ActiveStations.Clear();
             if (BarricadeManager.regions == null) return;
+
+            var savedData = DataStorage.Load();
+
             foreach (var region in BarricadeManager.regions)
+            {
                 foreach (var drop in region.drops)
+                {
                     if (drop.asset.id == 1466)
                     {
                         var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() 
                                    ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
                         
-                        comp.Frequency = 111111; 
-                        comp.Mode = RadioMode.TransmitAndListen;
-                        ActiveStations.Add(comp);
+                        string hash = GetPosHash(drop.model.position);
+                        
+                        if (savedData != null && savedData.ContainsKey(hash))
+                        {
+                            comp.Frequency = savedData[hash].Frequency;
+                            comp.Mode = savedData[hash].Mode;
+                        }
+                        else
+                        {
+                            comp.Frequency = 111111; 
+                            comp.Mode = RadioMode.TransmitAndListen;
+                        }
+
+                        if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
                     }
-            Logger.Log($"[DEBUG] Станций в списке: {ActiveStations.Count}");
+                }
+            }
+            Logger.Log($"[DEBUG] Активных станций в списке: {ActiveStations.Count}");
         }
+
+        // ТОТ САМЫЙ МЕТОД, КОТОРОГО НЕ ХВАТАЛО
+        public void SaveAllStations()
+        {
+            var dict = new Dictionary<string, StationData>();
+            foreach (var s in ActiveStations)
+            {
+                if (s != null)
+                {
+                    dict[GetPosHash(s.transform.position)] = new StationData 
+                    { 
+                        Frequency = s.Frequency, 
+                        Mode = s.Mode 
+                    };
+                }
+            }
+            DataStorage.Save(dict);
+            Logger.Log($"[DEBUG] Состояние {dict.Count} станций сохранено в JSON.");
+        }
+
+        public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
 
         public RadioStationComponent GetNearestStation(Vector3 pos, float radius)
         {
+            RadioStationComponent nearest = null;
+            float minSqrDist = radius * radius;
             foreach (var s in ActiveStations)
             {
                 if (s == null) continue;
-                if (Vector3.Distance(s.transform.position, pos) <= radius) return s;
+                float sqrDist = (s.transform.position - pos).sqrMagnitude;
+                if (sqrDist < minSqrDist)
+                {
+                    minSqrDist = sqrDist;
+                    nearest = s;
+                }
             }
-            return null;
+            return nearest;
         }
 
         protected override void Unload()
