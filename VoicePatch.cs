@@ -11,7 +11,7 @@ namespace RealRadiostation
             var player = __instance.player;
             if (player == null || RealRadiostationPlugin.Instance == null) return true;
 
-            // Берем радиус из конфига. Если там ошибка, ставим 5 метров для надежности.
+            // Берем радиус из конфига. Если там 0, ставим 5 метров.
             float radius = RealRadiostationPlugin.Instance.Configuration.Instance.TransmitRadius;
             if (radius <= 0) radius = 5f;
 
@@ -19,8 +19,7 @@ namespace RealRadiostation
 
             if (station != null && station.Mode == RadioMode.TransmitAndListen)
             {
-                // 1. Жестко переключаем частоту игрока на сервере и синхронизируем с его клиентом
-                player.quests.radioFrequency = station.Frequency;
+                // 1. Используем официальный метод для смены частоты (этот метод НЕ read-only)
                 player.quests.sendSetRadioFrequency(station.Frequency);
 
                 bool argModified = false;
@@ -43,7 +42,7 @@ namespace RealRadiostation
                 Rocket.Core.Logging.Logger.Log($"[VOICE SUCCESS] Игрок {player.channel.owner.playerID.characterName} вещает в эфир! Волна: {station.Frequency} | Перехват: {argModified}");
             }
 
-            return true; // Разрешаем игре продолжить отправку голоса с нашими новыми параметрами
+            return true; 
         }
     }
 }
