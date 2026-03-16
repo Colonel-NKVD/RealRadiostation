@@ -1,5 +1,7 @@
 using Rocket.Core.Plugins;
 using SDG.Unturned;
+using UnityEngine; // Обязательно для Vector3
+using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
 using System.Reflection;
@@ -16,9 +18,12 @@ namespace RealRadiostation
         protected override void Load()
         {
             Instance = this;
+            Logger.Log("-----------------------------------------------");
+            Logger.Log("[RealRadiostation] ЗАПУСК ДЕТЕКТОР-ПАТЧА...");
+
             harmony = new Harmony("com.realradiostation.patch");
 
-            // Список всех возможных методов-претендентов
+            // Список всех возможных методов-претендентов для разных версий Unturned
             string[] voiceMethods = { "askVoiceChat", "receiveVoiceChat", "handleVoiceChat", "ReceiveVoice" };
             
             int patchCount = 0;
@@ -36,10 +41,19 @@ namespace RealRadiostation
 
             if (patchCount == 0) Logger.LogError("[FATAL] Ни один метод голоса не найден!");
 
-            Level.onPostLevelLoaded += (int level) => ScanStations();
-            BarricadeManager.onBarricadeSpawned += (region, drop) => { if (drop.asset.id == 1466) ScanStations(); };
+            Level.onPostLevelLoaded += OnLevelLoaded;
+            BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
+            if (Level.isLoaded) ScanStations();
+
             Logger.Log("[RealRadiostation] Режим детектива активен.");
+            Logger.Log("-----------------------------------------------");
+        }
+
+        private void OnLevelLoaded(int level) => ScanStations();
+        private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop) 
+        { 
+            if (drop.asset.id == 1466) ScanStations(); 
         }
 
         public void ScanStations()
@@ -50,9 +64,10 @@ namespace RealRadiostation
                 foreach (var drop in region.drops)
                     if (drop.asset.id == 1466)
                     {
-                        var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
-                        // Загрузка частоты... (упростил для теста)
-                        comp.Frequency = 333333; 
+                        var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() 
+                                   ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
+                        
+                        comp.Frequency = 111111; 
                         comp.Mode = RadioMode.TransmitAndListen;
                         ActiveStations.Add(comp);
                     }
@@ -71,7 +86,7 @@ namespace RealRadiostation
 
         protected override void Unload()
         {
-            harmony.UnpatchAll("com.realradiostation.patch");
+            if (harmony != null) harmony.UnpatchAll("com.realradiostation.patch");
             ActiveStations.Clear();
             Instance = null;
         }
