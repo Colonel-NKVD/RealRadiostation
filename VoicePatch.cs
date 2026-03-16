@@ -6,28 +6,47 @@ namespace RealRadiostation
 {
     public static class VoicePatch
     {
-        // Используем object[] __args, чтобы патч подошел к любой версии Unturned
         public static bool Prefix(PlayerVoice __instance, object[] __args)
         {
-            // В Unturned параметры обычно такие: 0: wantsToUseRadio, 1: shouldAllow, 2: shouldBroadcast
-            // Мы безопасно достаем первый параметр (нажата ли кнопка рации)
+            // [0] wantsToUseRadio, [1] shouldAllow, [2] shouldBroadcastOverRadio
             bool wantsToUseRadio = (bool)__args[0];
+            string playerName = __instance.player?.channel?.owner?.playerID.characterName ?? "Unknown";
 
+            // Если игрок говорит просто голосом (без рации в руках)
             if (!wantsToUseRadio)
             {
                 var plugin = RealRadiostationPlugin.Instance;
-                if (plugin == null || __instance.player == null) return true;
+                if (plugin == null) return true;
 
-                var station = plugin.GetNearestStation(__instance.player.transform.position, plugin.Configuration.Instance.TransmitRadius);
+                var pos = __instance.player.transform.position;
+                var radius = plugin.Configuration.Instance.TransmitRadius;
                 
-                if (station != null && station.Mode == RadioMode.TransmitAndListen)
+                var station = plugin.GetNearestStation(pos, radius);
+                
+                if (station != null)
                 {
-                    __instance.player.quests.sendSetRadioFrequency((uint)station.Frequency);
-                    
-                    // Меняем значения параметров "разрешить" и "вещать через рацию" в массиве аргументов
-                    __args[1] = true; // shouldAllow
-                    __args[2] = true; // shouldBroadcastOverRadio
+                    Rocket.Core.Logging.Logger.Log($"DEBUG VOICE: Игрок {playerName} рядом со станцией (Частота: {station.Frequency}, Режим: {station.Mode})");
+
+                    if (station.Mode == RadioMode.TransmitAndListen)
+                    {
+                        uint freq = (uint)station.Frequency;
+                        __instance.player.quests.sendSetRadioFrequency(freq);
+                        
+                        __args[1] = true; // shouldAllow
+                        __args[2] = true; // shouldBroadcastOverRadio
+                        
+                        Rocket.Core.Logging.Logger.Log($"DEBUG VOICE: Голос игрока {playerName} ПЕРЕНАПРАВЛЕН на частоту {freq}");
+                    }
+                    else 
+                    {
+                        Rocket.Core.Logging.Logger.Log($"DEBUG VOICE: Станция найдена, но режим '{station.Mode}' не позволяет передачу.");
+                    }
                 }
+            }
+            else
+            {
+                // Если игрок УЖЕ говорит в рацию (сам нажал кнопку)
+                // Rocket.Core.Logging.Logger.Log($"DEBUG VOICE: Игрок {playerName} говорит в свою рацию.");
             }
             return true;
         }
