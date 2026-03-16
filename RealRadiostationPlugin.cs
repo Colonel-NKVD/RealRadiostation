@@ -1,6 +1,7 @@
 using Rocket.Core.Plugins;
 using SDG.Unturned;
 using UnityEngine;
+using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
 
@@ -16,44 +17,39 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // 1. Инициализация Harmony
+            // Harmony патчи
             harmony = new Harmony("com.realradiostation.patch");
-            try 
-            {
-                harmony.PatchAll();
-            }
-            catch (System.Exception ex)
-            {
-                Rocket.Core.Logging.Logger.LogError("Harmony Patch Error: " + ex.Message);
-            }
+            harmony.PatchAll();
 
-            // 2. Сканирование станций только если карта уже загружена
-            if (Level.isLoaded)
-            {
-                ScanExistingStations();
-            }
-            
+            // ЗАПУСК ПОИСКА С ЗАДЕРЖКОЙ (решает проблему пустых регионов при старте)
+            StartCoroutine(DeferredStationSearch());
+
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            Rocket.Core.Logging.Logger.Log("RealRadiostation успешно запущен!");
+            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Ожидание прогрузки карты...");
+        }
+
+        private IEnumerator DeferredStationSearch()
+        {
+            // Ждем 3 секунды, пока Unturned выставит все баррикады на карту
+            yield return new WaitForSeconds(3f);
+            ScanExistingStations();
+            Rocket.Core.Logging.Logger.Log($"Поиск завершен. Найдено станций: {ActiveStations.Count}");
         }
 
         private void ScanExistingStations()
         {
-            if (ActiveStations == null) ActiveStations = new List<RadioStationComponent>();
             ActiveStations.Clear();
-
-            if (BarricadeManager.regions == null) return;
-
-            foreach (var region in BarricadeManager.regions)
+            
+            // Ищем вообще все объекты на карте, у которых ID совпадает с нашим радио
+            // Это медленнее, но зато находит ВСЁ
+            var allBarricades = UnityEngine.Object.FindObjectsOfType<Transform>();
+            foreach (var t in allBarricades)
             {
-                if (region?.drops == null) continue;
-                foreach (var drop in region.drops)
+                var drop = BarricadeManager.FindBarricadeByRootTransform(t);
+                if (drop != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
                 {
-                    if (drop?.asset != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
-                    {
-                        AddStationComponent(drop);
-                    }
+                    AddStationComponent(drop);
                 }
             }
         }
@@ -69,9 +65,20 @@ namespace RealRadiostation
         private void AddStationComponent(BarricadeDrop drop)
         {
             if (drop?.model == null) return;
-            if (drop.model.gameObject.GetComponent<RadioStationComponent>() == null)
+
+            var existingComp = drop.model.gameObject.GetComponent<RadioStationComponent>();
+            if (existingComp == null)
             {
                 var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
+                
+                // Загружаем сохраненные данные, если они есть
+                var savedData = DataStorage.Load();
+                if (savedData != null && savedData.ContainsKey(drop.instanceID))
+                {
+                    comp.Frequency = savedData[drop.instanceID].Frequency;
+                    comp.Mode = savedData[drop.instanceID].Mode;
+                }
+
                 ActiveStations.Add(comp);
             }
         }
@@ -84,7 +91,11 @@ namespace RealRadiostation
             for (int i = ActiveStations.Count - 1; i >= 0; i--)
             {
                 var station = ActiveStations[i];
-                if (station == null) { ActiveStations.RemoveAt(i); continue; }
+                if (station == null || station.gameObject == null) 
+                { 
+                    ActiveStations.RemoveAt(i); 
+                    continue; 
+                }
 
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
                 if (sqrDist < minSqrDist)
@@ -98,29 +109,22 @@ namespace RealRadiostation
 
         public void SaveStations()
         {
-            try 
+            var dataToSave = new Dictionary<ulong, StationData>();
+            foreach (var station in ActiveStations)
             {
-                var dataToSave = new Dictionary<ulong, StationData>();
-                foreach (var station in ActiveStations)
+                if (station == null) continue;
+                var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
+                if (drop != null)
                 {
-                    if (station == null) continue;
-                    var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
-                    if (drop != null)
-                    {
-                        dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
-                    }
+                    dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
                 }
-                // Вызов статического метода вашего DataStorage
-                DataStorage.Save(dataToSave);
             }
-            catch (System.Exception ex)
-            {
-                Rocket.Core.Logging.Logger.LogError("Save Error: " + ex.Message);
-            }
+            DataStorage.Save(dataToSave);
         }
 
         protected override void Unload()
         {
+            StopAllCoroutines();
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
             if (harmony != null) harmony.UnpatchAll("com.realradiostation.patch");
             ActiveStations.Clear();
