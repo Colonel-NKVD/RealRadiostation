@@ -16,14 +16,14 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // Нативный API Unturned для перехвата голоса
+            // Используем нативный API Unturned для 100% стабильности голоса
             PlayerVoice.onRelayVoice += OnRelayVoice;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             Level.onPostLevelLoaded += OnLevelLoaded;
 
             if (Level.isLoaded) OnLevelLoaded(0);
 
-            Logger.Log("[RealRadiostation] Плагин успешно загружен!");
+            Logger.Log("[RealRadiostation] Плагин загружен. Режим расширенного дебага включен.");
         }
 
         private void OnLevelLoaded(int level)
@@ -41,13 +41,14 @@ namespace RealRadiostation
                     }
                 }
             }
-            Logger.Log($"[DEBUG] Поиск завершен. Станций в мире: {ActiveStations.Count}");
+            Logger.Log($"[DEBUG] Карта готова. Станций в реестре: {ActiveStations.Count}");
         }
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
+                Logger.Log($"[DEBUG] Новая станция установлена. ID: {drop.instanceID}");
                 AddStationComponent(drop);
             }
         }
@@ -67,29 +68,35 @@ namespace RealRadiostation
             }
             else
             {
-                comp.Frequency = 111111; // 111.111
+                comp.Frequency = 111111; 
                 comp.Mode = RadioMode.TransmitAndListen;
             }
 
             if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
+            Logger.Log($"[DEBUG] Станция инициализирована: Волна {comp.Frequency}, Режим {comp.Mode}");
         }
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
 
         private void OnRelayVoice(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
         {
-            if (speaker?.player == null || wantsToUseRadio) return;
+            if (speaker?.player == null) return;
 
-            var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
-            
-            if (station != null && station.Mode == RadioMode.TransmitAndListen)
+            // Если игрок говорит просто в пространство (не через предмет-рацию)
+            if (!wantsToUseRadio)
             {
-                Logger.Log($"[DEBUG VOICE] Перехват: {speaker.player.channel.owner.playerID.characterName} на частоте {station.Frequency}");
+                var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
                 
-                speaker.player.quests.sendSetRadioFrequency(station.Frequency);
-                shouldAllow = true;
-                shouldBroadcastOverRadio = true;
-                spatialBlend = 0f; 
+                if (station != null && station.Mode == RadioMode.TransmitAndListen)
+                {
+                    string pName = speaker.player.channel.owner.playerID.characterName;
+                    Logger.Log($"[DEBUG VOICE] ПЕРЕХВАТ: Игрок {pName} вещает через стационарное радио на частоте {station.Frequency}");
+                    
+                    speaker.player.quests.sendSetRadioFrequency(station.Frequency);
+                    shouldAllow = true;
+                    shouldBroadcastOverRadio = true;
+                    spatialBlend = 0f; // Делаем голос чистым, как в рации
+                }
             }
         }
 
