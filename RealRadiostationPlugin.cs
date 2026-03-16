@@ -19,40 +19,56 @@ namespace RealRadiostation
         {
             Instance = this;
             Logger.Log("-----------------------------------------------");
-            Logger.Log("[RealRadiostation] ЗАПУСК ФИНАЛЬНОГО ПАТЧА...");
+            Logger.Log("[RealRadiostation] ЗАПУСК ТОЧЕЧНОГО ПАТЧА...");
 
             harmony = new Harmony("com.realradiostation.patch");
 
-            // Ищем метод, который реально отправляет голос. 
-            // В новых версиях Nelson часто прячет его под именами с "internal" или "relay"
-            var allMethods = typeof(PlayerVoice).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            // 1. Массив точных имен методов, которые когда-либо отвечали за голос в Unturned
+            string[] possibleMethodNames = new string[] 
+            {
+                "receiveRelayVoice",
+                "handleRelayVoiceInternal",
+                "askVoiceChat",
+                "receiveVoice",
+                "ServerReceiveVoice",
+                "ReceiveVoiceChat"
+            };
+
             MethodInfo targetMethod = null;
 
-            foreach (var m in allMethods)
+            // 2. Ищем строго по именам
+            foreach (string methodName in possibleMethodNames)
             {
-                // Нам нужен метод, который принимает (bool wantsToUseRadio) и НЕ является куллингом или подпиской
-                var parameters = m.GetParameters();
-                if (parameters.Length >= 2 && 
-                    parameters[0].ParameterType == typeof(bool) && 
-                    !m.Name.Contains("Culling") && 
-                    !m.Name.StartsWith("add_") && 
-                    !m.Name.StartsWith("remove_"))
+                targetMethod = typeof(PlayerVoice).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (targetMethod != null)
                 {
-                    // Это либо receiveRelayVoice, либо handleRelayVoiceInternal
-                    targetMethod = m;
-                    break;
+                    break; // Нашли нужный метод, останавливаем поиск
                 }
             }
 
+            // 3. Результат поиска
             if (targetMethod != null)
             {
                 var prefix = typeof(VoicePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public);
                 harmony.Patch(targetMethod, new HarmonyMethod(prefix));
-                Logger.Log($"[DEBUG SUCCESS] Harmony привязан к ИСПОЛНИТЕЛЬНОМУ методу: {targetMethod.Name}");
+                Logger.Log($"[DEBUG SUCCESS] БИНГО! Harmony привязан к методу голоса: {targetMethod.Name}");
             }
             else
             {
-                Logger.LogError("[DEBUG FATAL] Метод захвата голоса не найден!");
+                Logger.LogError("[DEBUG FATAL] Точные имена методов не подошли. Плагин остановлен.");
+                Logger.Log("--- СПИСОК ВОЗМОЖНЫХ МЕТОДОВ ДЛЯ АНАЛИЗА ---");
+                
+                // Выводим только те методы, в названии которых есть слова Voice или Relay
+                var allMethods = typeof(PlayerVoice).GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                foreach (var m in allMethods)
+                {
+                    string n = m.Name.ToLower();
+                    if ((n.Contains("voice") || n.Contains("relay")) && !n.StartsWith("add_") && !n.StartsWith("remove_"))
+                    {
+                        Logger.Log($"КАНДИДАТ: {m.Name}");
+                    }
+                }
+                Logger.Log("--------------------------------------------");
             }
 
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
