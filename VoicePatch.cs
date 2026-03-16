@@ -7,51 +7,22 @@ namespace RealRadiostation
 {
     public static class VoicePatch
     {
-        public static bool Prefix(PlayerVoice __instance, MethodBase __originalMethod, object[] __args)
+        // Специальный префикс, который принимает информацию о ЛЮБОМ методе
+        public static void UniversalPrefix(PlayerVoice __instance, MethodBase __originalMethod)
         {
-            // ЛОГ №1: Фиксируем любое использование микрофона
-            Rocket.Core.Logging.Logger.Log($"[DETECTOR] Вызван метод: {__originalMethod.Name} от игрока {__instance.player.channel.owner.playerID.characterName}");
-
-            var player = __instance.player;
-            if (RealRadiostationPlugin.Instance == null) return true;
-
-            // Тестовый радиус 10 метров
-            float radius = 10f; 
-            var station = RealRadiostationPlugin.Instance.GetNearestStation(player.transform.position, radius);
-
-            if (station != null)
+            // Это сообщение ДОЛЖНО появиться, если хоть какой-то метод PlayerVoice сработал
+            Rocket.Core.Logging.Logger.Log($"[HIT] Сработал метод: {__originalMethod.Name} | Игрок: {__instance.player.channel.owner.playerID.characterName}");
+            
+            // Если это один из ключевых методов, пробуем подменить частоту
+            if (__originalMethod.Name.ToLower().Contains("voice") || __originalMethod.Name.ToLower().Contains("relay"))
             {
-                Rocket.Core.Logging.Logger.Log($"[DETECTOR] Игрок РЯДОМ со станцией {station.Frequency}");
-
-                if (__args != null)
+                var station = RealRadiostationPlugin.Instance.GetNearestStation(__instance.player.transform.position, 10f);
+                if (station != null)
                 {
-                    for (int i = 0; i < __args.Length; i++)
-                    {
-                        if (__args[i] is bool)
-                        {
-                            __args[i] = true; 
-                            Rocket.Core.Logging.Logger.Log($"[DETECTOR] Аргумент {i} (bool) изменен на TRUE");
-                        }
-                    }
-                }
-
-                player.quests.sendSetRadioFrequency(station.Frequency);
-            }
-            else
-            {
-                // Если станций нет рядом, проверим, есть ли они вообще в мире
-                if (RealRadiostationPlugin.Instance.ActiveStations.Count > 0)
-                {
-                    float d = Vector3.Distance(player.transform.position, RealRadiostationPlugin.Instance.ActiveStations[0].transform.position);
-                    Rocket.Core.Logging.Logger.Log($"[DETECTOR] Станция 1466 найдена, но она далеко: {d:F1}м");
-                }
-                else
-                {
-                    Rocket.Core.Logging.Logger.Log("[DETECTOR] Станций с ID 1466 в активном списке нет.");
+                    __instance.player.quests.sendSetRadioFrequency(station.Frequency);
+                    Rocket.Core.Logging.Logger.Log($"[ACTION] Попытка форсировать частоту {station.Frequency}");
                 }
             }
-
-            return true;
         }
     }
 }
