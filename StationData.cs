@@ -1,12 +1,14 @@
+using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.IO;
-using Newtonsoft.Json;
 
 namespace RealRadiostation
 {
+    public enum RadioMode { ListenOnly, TransmitAndListen }
+
     public class StationData
     {
-        public float Frequency { get; set; }
+        public uint Frequency { get; set; }
         public RadioMode Mode { get; set; }
     }
 
@@ -14,15 +16,23 @@ namespace RealRadiostation
     {
         private static string Path => "Plugins/RealRadiostation/StationsData.json";
 
-        public static void Save(Dictionary<ulong, StationData> data)
+        public static void Save(Dictionary<string, StationData> data)
         {
+            string dir = System.IO.Path.GetDirectoryName(Path);
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(Path, JsonConvert.SerializeObject(data, Formatting.Indented));
         }
 
-        public static Dictionary<ulong, StationData> Load()
+        public static Dictionary<string, StationData> Load()
         {
-            if (!File.Exists(Path)) return new Dictionary<ulong, StationData>();
-            return JsonConvert.DeserializeObject<Dictionary<ulong, StationData>>(File.ReadAllText(Path));
+            if (!File.Exists(Path)) return new Dictionary<string, StationData>();
+            return JsonConvert.DeserializeObject<Dictionary<string, StationData>>(File.ReadAllText(Path));
         }
+    }
+
+    public class RadioStationComponent : UnityEngine.MonoBehaviour
+    {
+        public uint Frequency;
+        public RadioMode Mode;
     }
 }
