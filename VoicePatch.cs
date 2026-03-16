@@ -8,47 +8,38 @@ namespace RealRadiostation
     {
         public static bool Prefix(PlayerVoice __instance, object[] __args)
         {
-            // [0] wantsToUseRadio (bool) - нажал ли игрок кнопку рации
-            // [1] shouldAllow (ref bool) - разрешить ли передачу
-            // [2] shouldBroadcastOverRadio (ref bool) - транслировать ли на частоте
+            // Пытаемся безопасно извлечь 'wantsToUseRadio' (обычно это 1-й аргумент)
+            if (__args.Length < 1) return true;
             
-            bool wantsToUseRadio = (bool)__args[0];
+            bool wantsToUseRadio = false;
+            if (__args[0] is bool b) wantsToUseRadio = b;
+
+            // Если игрок УЖЕ использует рацию в руках, не вмешиваемся
+            if (wantsToUseRadio) return true;
+
             var player = __instance.player;
-            if (player == null) return true;
+            if (player == null || RealRadiostationPlugin.Instance == null) return true;
 
-            // Если игрок УЖЕ говорит через Walkie-Talkie в руках, мы не мешаем игре.
-            // Игра сама отправит голос на частоту рации в его руках.
-            if (wantsToUseRadio) return true; 
+            float radius = RealRadiostationPlugin.Instance.Configuration.Instance.TransmitRadius;
+            var station = RealRadiostationPlugin.Instance.GetNearestStation(player.transform.position, radius);
 
-            var plugin = RealRadiostationPlugin.Instance;
-            if (plugin == null) return true;
-
-            float radius = plugin.Configuration.Instance.TransmitRadius;
-            var station = plugin.GetNearestStation(player.transform.position, radius);
-
-            if (station != null)
+            if (station != null && station.Mode == RadioMode.TransmitAndListen)
             {
-                string pName = player.channel.owner.playerID.characterName;
+                // ГАРАНТИЯ 2: Ретрансляция голоса на частоту станции
+                // Синхронизируем частоту игрока с частотой стационарной рации
+                player.quests.sendSetRadioFrequency(station.Frequency);
 
-                if (station.Mode == RadioMode.TransmitAndListen)
+                // Подменяем аргументы вызова метода игры на лету
+                if (__args.Length >= 3)
                 {
-                    // ПРОФЕССИОНАЛЬНАЯ РЕТРАНСЛЯЦИЯ
-                    // 1. Принудительно ставим игроку частоту станции
-                    player.quests.sendSetRadioFrequency(station.Frequency);
-                    
-                    // 2. Говорим игре, что этот голос (из обычного чата) должен уйти в эфир
-                    __args[1] = true; // shouldAllow = true
-                    __args[2] = true; // shouldBroadcastOverRadio = true
-                    
-                    // 3. Если в игре есть параметр SpatialBlend (4-й в списке), убираем его в 0 (чистый звук рации)
-                    if (__args.Length > 3) __args[3] = 0f;
+                    __args[1] = true; // shouldAllow
+                    __args[2] = true; // shouldBroadcastOverRadio
+                }
+                
+                // Убираем затухание звука (делаем звук как в рации)
+                if (__args.Length > 3) __args[3] = 0f;
 
-                    Rocket.Core.Logging.Logger.Log($"[VOICE DEBUG] Игрок {pName} заговорил у станции. Частота {station.Frequency} ПРИМЕНЕНА.");
-                }
-                else 
-                {
-                    Rocket.Core.Logging.Logger.Log($"[VOICE DEBUG] Игрок {pName} у станции, но она в режиме 'Только прием'. Перехват отменен.");
-                }
+                Rocket.Core.Logging.Logger.Log($"[VOICE] Голос игрока {player.channel.owner.playerID.characterName} перенаправлен на волну {station.Frequency}");
             }
 
             return true;
