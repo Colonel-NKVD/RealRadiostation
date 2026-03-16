@@ -5,6 +5,7 @@ using UnityEngine;
 
 namespace RealRadiostation
 {
+    // Объявляем ОДИН раз здесь
     public enum RadioMode { ListenOnly, TransmitAndListen }
 
     public class StationData
@@ -26,7 +27,7 @@ namespace RealRadiostation
         public static void Save(Dictionary<string, StationData> data)
         {
             string dir = System.IO.Path.GetDirectoryName(Path);
-            if (!System.IO.Directory.Exists(dir)) System.IO.Directory.CreateDirectory(dir);
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(Path, JsonConvert.SerializeObject(data, Formatting.Indented));
         }
 
