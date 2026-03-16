@@ -2,6 +2,7 @@ using Rocket.Core.Plugins;
 using SDG.Unturned;
 using UnityEngine;
 using System.Collections.Generic;
+using HarmonyLib;
 
 namespace RealRadiostation
 {
@@ -9,20 +10,19 @@ namespace RealRadiostation
     {
         public static RealRadiostationPlugin Instance;
         public List<RadioStationComponent> ActiveStations = new List<RadioStationComponent>();
+        private Harmony harmony;
 
         protected override void Load()
         {
             Instance = this;
-
-            // Инициализация существующих на карте объектов
             ScanExistingStations();
-
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
-            
-            // РЕШЕНИЕ CS0123: Подписка на событие ретрансляции голоса
-            PlayerVoice.onRelayVoice += OnVoiceRelay;
-            
-            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Активных станций: " + ActiveStations.Count);
+
+            // Инициализация Harmony и патчинг
+            harmony = new Harmony("com.realradiostation.patch");
+            harmony.PatchAll();
+
+            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен. Harmony патчи успешно применены.");
         }
 
         private void ScanExistingStations()
@@ -36,30 +36,6 @@ namespace RealRadiostation
                     {
                         AddStationComponent(drop);
                     }
-                }
-            }
-        }
-
-        // РЕШЕНИЕ CS0123: Сигнатура из 5 параметров (актуально для большинства сборок)
-        // Если MSBuild снова выдаст CS0123, просто удалите последний параметр 'ref float spatialBlend'
-        private void OnVoiceRelay(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
-        {
-            if (speaker?.player == null) return;
-
-            // Если игрок говорит НЕ в рацию (обычный голос), мы перехватываем это для "трансляции" через станцию
-            if (!wantsToUseRadio)
-            {
-                // Используем радиус из конфига
-                var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
-                
-                if (station != null && station.Mode == RadioMode.TransmitAndListen)
-                {
-                    // РЕШЕНИЕ CS1503: Явное приведение float к uint для метода игры
-                    uint freqToSet = (uint)station.Frequency;
-                    speaker.player.quests.sendSetRadioFrequency(freqToSet);
-                    
-                    shouldAllow = true;
-                    shouldBroadcastOverRadio = true; // Применяем эффект рации к голосу
                 }
             }
         }
@@ -81,8 +57,7 @@ namespace RealRadiostation
             }
         }
 
-        // РЕШЕНИЕ CS7036: Добавлено значение по умолчанию для maxDistance
-        // Теперь вызов GetNearestStation(position) без второго аргумента будет работать корректно (радиус 3 метра)
+        // Исправленный метод поиска с параметром по умолчанию (решает CS7036)
         public RadioStationComponent GetNearestStation(Vector3 position, float maxDistance = 3f)
         {
             RadioStationComponent nearest = null;
@@ -91,13 +66,7 @@ namespace RealRadiostation
             for (int i = ActiveStations.Count - 1; i >= 0; i--)
             {
                 var station = ActiveStations[i];
-                
-                // Очистка списка от удаленных объектов
-                if (station == null) 
-                { 
-                    ActiveStations.RemoveAt(i); 
-                    continue; 
-                }
+                if (station == null) { ActiveStations.RemoveAt(i); continue; }
 
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
                 if (sqrDist < minSqrDist)
@@ -118,11 +87,7 @@ namespace RealRadiostation
                 var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
                 if (drop != null)
                 {
-                    dataToSave[drop.instanceID] = new StationData 
-                    { 
-                        Frequency = station.Frequency, 
-                        Mode = station.Mode 
-                    };
+                    dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
                 }
             }
             DataStorage.Save(dataToSave);
@@ -131,7 +96,9 @@ namespace RealRadiostation
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            PlayerVoice.onRelayVoice -= OnVoiceRelay;
+            
+            // Снимаем патчи при выгрузке
+            harmony.UnpatchAll("com.realradiostation.patch");
             ActiveStations.Clear();
         }
     }
