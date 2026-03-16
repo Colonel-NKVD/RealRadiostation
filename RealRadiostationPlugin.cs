@@ -3,7 +3,8 @@ using SDG.Unturned;
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-using Logger = Rocket.Core.Logging.Logger;
+using HarmonyLib;
+using System.Reflection;
 
 namespace RealRadiostation
 {
@@ -11,94 +12,50 @@ namespace RealRadiostation
     {
         public static RealRadiostationPlugin Instance;
         public List<RadioStationComponent> ActiveStations = new List<RadioStationComponent>();
+        private Harmony harmony;
 
         protected override void Load()
         {
             Instance = this;
 
-            // Используем нативный API Unturned для 100% стабильности голоса
-            PlayerVoice.onRelayVoice += OnRelayVoice;
+            // Инициализация Harmony
+            harmony = new Harmony("com.realradiostation.patch");
+
+            // Ищем метод динамически. В разных версиях он может называться по-разному.
+            var original = typeof(PlayerVoice).GetMethod("receiveRelayVoice", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public) 
+                        ?? typeof(PlayerVoice).GetMethod("handleRelayVoiceInternal", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+            var prefix = typeof(VoicePatch).GetMethod("Prefix", BindingFlags.Static | BindingFlags.Public);
+
+            if (original != null && prefix != null)
+            {
+                harmony.Patch(original, new HarmonyMethod(prefix));
+                Rocket.Core.Logging.Logger.Log($"[DEBUG] Harmony успешно пропатчил: {original.Name}");
+            }
+            else
+            {
+                Rocket.Core.Logging.Logger.LogError("[DEBUG FATAL] Не удалось найти метод для патча голоса!");
+            }
+
+            StartCoroutine(DeferredStationSearch());
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             Level.onPostLevelLoaded += OnLevelLoaded;
 
             if (Level.isLoaded) OnLevelLoaded(0);
-
-            Logger.Log("[RealRadiostation] Плагин загружен. Режим расширенного дебага включен.");
         }
 
-        private void OnLevelLoaded(int level)
+        // ... (остальные методы ScanExistingStations, AddStationComponent и т.д. остаются как были)
+
+        protected override void Unload()
         {
+            if (harmony != null) harmony.UnpatchAll("com.realradiostation.patch");
+            BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
+            Level.onPostLevelLoaded -= OnLevelLoaded;
             ActiveStations.Clear();
-            if (BarricadeManager.regions == null) return;
-
-            foreach (var region in BarricadeManager.regions)
-            {
-                foreach (var drop in region.drops)
-                {
-                    if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
-                    {
-                        AddStationComponent(drop);
-                    }
-                }
-            }
-            Logger.Log($"[DEBUG] Карта готова. Станций в реестре: {ActiveStations.Count}");
-        }
-
-        private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
-        {
-            if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
-            {
-                Logger.Log($"[DEBUG] Новая станция установлена. ID: {drop.instanceID}");
-                AddStationComponent(drop);
-            }
-        }
-
-        private void AddStationComponent(BarricadeDrop drop)
-        {
-            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() 
-                       ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
-
-            string hash = GetPosHash(drop.model.position);
-            var savedData = DataStorage.Load();
-
-            if (savedData != null && savedData.ContainsKey(hash))
-            {
-                comp.Frequency = savedData[hash].Frequency;
-                comp.Mode = savedData[hash].Mode;
-            }
-            else
-            {
-                comp.Frequency = 111111; 
-                comp.Mode = RadioMode.TransmitAndListen;
-            }
-
-            if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
-            Logger.Log($"[DEBUG] Станция инициализирована: Волна {comp.Frequency}, Режим {comp.Mode}");
+            Instance = null;
         }
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
-
-        private void OnRelayVoice(PlayerVoice speaker, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
-        {
-            if (speaker?.player == null) return;
-
-            // Если игрок говорит просто в пространство (не через предмет-рацию)
-            if (!wantsToUseRadio)
-            {
-                var station = GetNearestStation(speaker.player.transform.position, Configuration.Instance.TransmitRadius);
-                
-                if (station != null && station.Mode == RadioMode.TransmitAndListen)
-                {
-                    string pName = speaker.player.channel.owner.playerID.characterName;
-                    Logger.Log($"[DEBUG VOICE] ПЕРЕХВАТ: Игрок {pName} вещает через стационарное радио на частоте {station.Frequency}");
-                    
-                    speaker.player.quests.sendSetRadioFrequency(station.Frequency);
-                    shouldAllow = true;
-                    shouldBroadcastOverRadio = true;
-                    spatialBlend = 0f; // Делаем голос чистым, как в рации
-                }
-            }
-        }
 
         public RadioStationComponent GetNearestStation(Vector3 position, float radius)
         {
@@ -123,13 +80,34 @@ namespace RealRadiostation
             DataStorage.Save(dict);
         }
 
-        protected override void Unload()
+        private void OnLevelLoaded(int level)
         {
-            PlayerVoice.onRelayVoice -= OnRelayVoice;
-            BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            Level.onPostLevelLoaded -= OnLevelLoaded;
             ActiveStations.Clear();
-            Instance = null;
+            if (BarricadeManager.regions == null) return;
+            foreach (var region in BarricadeManager.regions)
+                foreach (var drop in region.drops)
+                    if (drop.asset.id == Configuration.Instance.RadioBarricadeId) AddStationComponent(drop);
+        }
+
+        private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
+        {
+            if (drop.asset.id == Configuration.Instance.RadioBarricadeId) AddStationComponent(drop);
+        }
+
+        private void AddStationComponent(BarricadeDrop drop)
+        {
+            var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
+            string hash = GetPosHash(drop.model.position);
+            var savedData = DataStorage.Load();
+            if (savedData != null && savedData.ContainsKey(hash)) { comp.Frequency = savedData[hash].Frequency; comp.Mode = savedData[hash].Mode; }
+            else { comp.Frequency = 111111; comp.Mode = RadioMode.TransmitAndListen; }
+            if (!ActiveStations.Contains(comp)) ActiveStations.Add(comp);
+        }
+
+        private IEnumerator DeferredStationSearch()
+        {
+            yield return new WaitForSeconds(3f);
+            OnLevelLoaded(0);
         }
     }
 }
