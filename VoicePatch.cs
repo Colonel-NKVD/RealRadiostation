@@ -4,14 +4,14 @@ using UnityEngine;
 
 namespace RealRadiostation
 {
-    // Патчим основной метод передачи голоса
-    [HarmonyPatch(typeof(PlayerVoice), "receiveRelayVoice")]
+    // Nelson (разработчик Unturned) в новых версиях переименовал метод. 
+    // Пробуем пропатчить handleRelayVoiceInternal
+    [HarmonyPatch(typeof(PlayerVoice), "handleRelayVoiceInternal")]
     public static class VoicePatch
     {
         [HarmonyPrefix]
         public static bool Prefix(PlayerVoice __instance, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
         {
-            // Если игрок говорит обычным голосом (не нажал кнопку рации)
             if (!wantsToUseRadio)
             {
                 var plugin = RealRadiostationPlugin.Instance;
@@ -22,14 +22,14 @@ namespace RealRadiostation
                 
                 if (station != null && station.Mode == RadioMode.TransmitAndListen)
                 {
-                    // Симулируем передачу через рацию на частоте станции
+                    // Настраиваем рацию игрока на частоту станции
                     __instance.player.quests.sendSetRadioFrequency((uint)station.Frequency);
                     
                     shouldAllow = true;
                     shouldBroadcastOverRadio = true; 
                 }
             }
-            return true; // Продолжаем выполнение оригинального метода
+            return true; // Разрешаем игре выполнить остальную логику
         }
     }
 }
