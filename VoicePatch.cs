@@ -8,40 +8,42 @@ namespace RealRadiostation
     {
         public static bool Prefix(PlayerVoice __instance, object[] __args)
         {
-            // Самый первый дебаг - вошли ли мы вообще в патч?
-            // Если этой строки нет в консоли при нажатии микрофона - мы патчим не тот метод.
-            Rocket.Core.Logging.Logger.Log($"[VOICE ATTEMPT] Игрок {__instance.player.channel.owner.playerID.characterName} пытается говорить...");
-
-            if (__args == null || __args.Length < 2) return true;
-
             var player = __instance.player;
             if (player == null || RealRadiostationPlugin.Instance == null) return true;
 
+            // Берем радиус из конфига. Если там ошибка, ставим 5 метров для надежности.
             float radius = RealRadiostationPlugin.Instance.Configuration.Instance.TransmitRadius;
-            // Если в конфиге забыли поставить радиус, ставим 5 метров по умолчанию для теста
             if (radius <= 0) radius = 5f;
 
             var station = RealRadiostationPlugin.Instance.GetNearestStation(player.transform.position, radius);
 
-            if (station != null)
+            if (station != null && station.Mode == RadioMode.TransmitAndListen)
             {
-                Rocket.Core.Logging.Logger.Log($"[VOICE MATCH] Станция найдена рядом с игроком! Режим станции: {station.Mode}");
+                // 1. Жестко переключаем частоту игрока на сервере и синхронизируем с его клиентом
+                player.quests.radioFrequency = station.Frequency;
+                player.quests.sendSetRadioFrequency(station.Frequency);
 
-                if (station.Mode == RadioMode.TransmitAndListen)
+                bool argModified = false;
+
+                // 2. Ищем параметр wantsToUseRadio в аргументах метода askVoiceChat
+                // и принудительно заставляем игру думать, что игрок использует рацию
+                if (__args != null)
                 {
-                    // Принудительно выставляем частоту
-                    player.quests.sendSetRadioFrequency(station.Frequency);
-                    
-                    // Перезаписываем аргументы метода
-                    __args[1] = true; // shouldAllow
-                    if (__args.Length > 2) __args[2] = true; // shouldBroadcastOverRadio
-                    if (__args.Length > 3) __args[3] = 0f; // SpatialBlend (0 = звук рации везде)
-
-                    Rocket.Core.Logging.Logger.Log($"[VOICE SUCCESS] Голос игрока {player.channel.owner.playerID.characterName} отправлен на волну {station.Frequency}");
+                    for (int i = 0; i < __args.Length; i++)
+                    {
+                        if (__args[i] is bool)
+                        {
+                            __args[i] = true; // Включаем режим трансляции на всю карту
+                            argModified = true;
+                            break; 
+                        }
+                    }
                 }
+
+                Rocket.Core.Logging.Logger.Log($"[VOICE SUCCESS] Игрок {player.channel.owner.playerID.characterName} вещает в эфир! Волна: {station.Frequency} | Перехват: {argModified}");
             }
 
-            return true;
+            return true; // Разрешаем игре продолжить отправку голоса с нашими новыми параметрами
         }
     }
 }
