@@ -10,7 +10,7 @@ namespace RealRadiostation
 
         public void LoadDefaults()
         {
-            RadioBarricadeId = 1234; 
+            RadioBarricadeId = 1466; 
             ListenRadius = 20f; 
             TransmitRadius = 3f; 
         }
