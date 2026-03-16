@@ -16,14 +16,7 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // 1. Проверяем, загружен ли конфиг
-            if (Configuration == null || Configuration.Instance == null)
-            {
-                Rocket.Core.Logging.Logger.LogError("Ошибка: Конфигурация не загружена!");
-                return;
-            }
-
-            // 2. Инициализируем Harmony максимально рано
+            // 1. Инициализация Harmony
             harmony = new Harmony("com.realradiostation.patch");
             try 
             {
@@ -31,10 +24,10 @@ namespace RealRadiostation
             }
             catch (System.Exception ex)
             {
-                Rocket.Core.Logging.Logger.LogError("Ошибка при применении патчей Harmony: " + ex.Message);
+                Rocket.Core.Logging.Logger.LogError("Harmony Patch Error: " + ex.Message);
             }
 
-            // 3. Чтобы избежать NRE при старте, сканируем станции только когда уровень готов
+            // 2. Сканирование станций только если карта уже загружена
             if (Level.isLoaded)
             {
                 ScanExistingStations();
@@ -42,12 +35,11 @@ namespace RealRadiostation
             
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
             
-            Rocket.Core.Logging.Logger.Log("RealRadiostation загружен успешно.");
+            Rocket.Core.Logging.Logger.Log("RealRadiostation успешно запущен!");
         }
 
         private void ScanExistingStations()
         {
-            // Защита: проверяем, инициализирован ли список и есть ли регионы на карте
             if (ActiveStations == null) ActiveStations = new List<RadioStationComponent>();
             ActiveStations.Clear();
 
@@ -56,16 +48,11 @@ namespace RealRadiostation
             foreach (var region in BarricadeManager.regions)
             {
                 if (region?.drops == null) continue;
-
                 foreach (var drop in region.drops)
                 {
-                    // Проверка на null для ассета и конфига
-                    if (drop?.asset != null && Configuration?.Instance != null)
+                    if (drop?.asset != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
                     {
-                        if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
-                        {
-                            AddStationComponent(drop);
-                        }
+                        AddStationComponent(drop);
                     }
                 }
             }
@@ -73,19 +60,15 @@ namespace RealRadiostation
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
-            if (drop?.asset != null && Configuration?.Instance != null)
+            if (drop?.asset != null && drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
-                if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
-                {
-                    AddStationComponent(drop);
-                }
+                AddStationComponent(drop);
             }
         }
 
         private void AddStationComponent(BarricadeDrop drop)
         {
             if (drop?.model == null) return;
-
             if (drop.model.gameObject.GetComponent<RadioStationComponent>() == null)
             {
                 var comp = drop.model.gameObject.AddComponent<RadioStationComponent>();
@@ -98,16 +81,10 @@ namespace RealRadiostation
             RadioStationComponent nearest = null;
             float minSqrDist = maxDistance * maxDistance;
 
-            if (ActiveStations == null) return null;
-
             for (int i = ActiveStations.Count - 1; i >= 0; i--)
             {
                 var station = ActiveStations[i];
-                if (station == null) 
-                { 
-                    ActiveStations.RemoveAt(i); 
-                    continue; 
-                }
+                if (station == null) { ActiveStations.RemoveAt(i); continue; }
 
                 float sqrDist = (position - station.transform.position).sqrMagnitude;
                 if (sqrDist < minSqrDist)
@@ -121,36 +98,32 @@ namespace RealRadiostation
 
         public void SaveStations()
         {
-            if (DataStorage == null || ActiveStations == null) return;
-
-            var dataToSave = new Dictionary<ulong, StationData>();
-            foreach (var station in ActiveStations)
+            try 
             {
-                if (station == null) continue;
-                var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
-                if (drop != null)
+                var dataToSave = new Dictionary<ulong, StationData>();
+                foreach (var station in ActiveStations)
                 {
-                    dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
+                    if (station == null) continue;
+                    var drop = BarricadeManager.FindBarricadeByRootTransform(station.transform);
+                    if (drop != null)
+                    {
+                        dataToSave[drop.instanceID] = new StationData { Frequency = station.Frequency, Mode = station.Mode };
+                    }
                 }
+                // Вызов статического метода вашего DataStorage
+                DataStorage.Save(dataToSave);
             }
-            DataStorage.Save(dataToSave);
+            catch (System.Exception ex)
+            {
+                Rocket.Core.Logging.Logger.LogError("Save Error: " + ex.Message);
+            }
         }
 
         protected override void Unload()
         {
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            
-            // Защита от NRE в Unload: проверяем существование объекта перед вызовом методов
-            if (harmony != null)
-            {
-                harmony.UnpatchAll("com.realradiostation.patch");
-            }
-
-            if (ActiveStations != null)
-            {
-                ActiveStations.Clear();
-            }
-
+            if (harmony != null) harmony.UnpatchAll("com.realradiostation.patch");
+            ActiveStations.Clear();
             Instance = null;
         }
     }
