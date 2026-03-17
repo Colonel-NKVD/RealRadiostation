@@ -17,32 +17,25 @@ namespace RealRadiostation
         {
             Instance = this;
 
-            // Подписка на события
+            // Подписка на загрузку карты и динамический спавн (когда игрок ставит объект)
             Level.onPostLevelLoaded += OnLevelLoaded;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
+
+            // Нативный перехват голоса из движка Unturned
             PlayerVoice.onRelayVoice += OnRelayVoice;
 
             // Если плагин загружен "на горячую", сканируем уже стоящие объекты
-            if (Level.isLoaded) 
-            {
-                Logger.Log("[DEBUG] Карта уже загружена. Запускаю первичный поиск раций...");
-                ScanAllStations();
-            }
+            if (Level.isLoaded) ScanAllStations();
 
             Logger.Log("RealRadiostation [PRO] успешно загружен!");
         }
 
-        private void OnLevelLoaded(int level) 
-        {
-            Logger.Log($"[DEBUG] Карта загружена (Level {level}). Начинаю сканирование станций...");
-            ScanAllStations();
-        }
+        private void OnLevelLoaded(int level) => ScanAllStations();
 
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop)
         {
             if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
             {
-                Logger.Log($"[DEBUG] Обнаружен спавн радио-баррикады (ID: {drop.asset.id}). Подключаю компоненты...");
                 AttachComponentAndLoadData(drop);
             }
         }
@@ -50,13 +43,8 @@ namespace RealRadiostation
         private void ScanAllStations()
         {
             ActiveStations.Clear();
-            if (BarricadeManager.regions == null) 
-            {
-                Logger.Log("[DEBUG] Ошибка: BarricadeManager.regions пуст.");
-                return;
-            }
+            if (BarricadeManager.regions == null) return;
 
-            int foundCount = 0;
             foreach (var region in BarricadeManager.regions)
             {
                 foreach (var drop in region.drops)
@@ -64,79 +52,85 @@ namespace RealRadiostation
                     if (drop.asset.id == Configuration.Instance.RadioBarricadeId)
                     {
                         AttachComponentAndLoadData(drop);
-                        foundCount++;
                     }
                 }
             }
-            Logger.Log($"[DEBUG] Сканирование завершено. Найдено раций: {foundCount}");
         }
 
         private void AttachComponentAndLoadData(BarricadeDrop drop)
         {
-            // Берем существующий компонент или добавляем новый
             var comp = drop.model.gameObject.GetComponent<RadioStationComponent>() ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
             
             string hash = GetPosHash(drop.model.position);
             var savedData = DataStorage.Load();
 
-            if (savedData != null && savedData.ContainsKey(hash))
+            if (savedData.ContainsKey(hash))
             {
                 comp.Frequency = savedData[hash].Frequency;
                 comp.CanTransmit = savedData[hash].CanTransmit;
-                Logger.Log($"[DEBUG] Данные загружены из файла для рации на {hash}: Freq={comp.Frequency}, Transmit={comp.CanTransmit}");
             }
             else
             {
                 comp.Frequency = Configuration.Instance.DefaultFrequency;
                 comp.CanTransmit = false; // По умолчанию только слушать
-                Logger.Log($"[DEBUG] Новая рация на {hash}. Установлены настройки по умолчанию.");
             }
         }
 
         // ==========================================
-        // ЛОГИКА ТРАНСЛЯЦИИ ГОЛОСА
+        // ЛОГИКА ТРАНСЛЯЦИИ ГОЛОСА (АБСОЛЮТНЫЙ ДЕБАГ)
         // ==========================================
         private void OnRelayVoice(PlayerVoice speaker, bool wantsToUseWalkieTalkie, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref PlayerVoice.RelayVoiceCullingHandler cullingHandler)
         {
+            // 1. БАЗОВЫЙ ДЕБАГ: Проверяем, что событие вообще срабатывает
+            Logger.Log($"[VOICE_TEST] Сервер получил голос от {speaker.player.channel.owner.playerID.characterName}");
+
             uint currentBroadcastFreq = speaker.player.quests.radioFrequency;
             bool isBroadcastingToRadio = false;
 
-            // 1. Проверяем, говорит ли игрок через нашу стационарную рацию
+            // 2. ДЕБАГ РАЦИЙ: Ищем ЛЮБУЮ рацию рядом, просто чтобы понять, видит ли её плагин
+            var anyStationNear = GetNearestStation(speaker.transform.position, Configuration.Instance.ListenAuraRadius, false);
+            if (anyStationNear != null)
+            {
+                Logger.Log($"[VOICE_TEST] Рядом с игроком есть рация! Её режим CanTransmit: {anyStationNear.CanTransmit}");
+            }
+
+            // 3. ОСНОВНАЯ ЛОГИКА: Ищем рацию, в которую МОЖНО говорить
             var speakerStation = GetNearestStation(speaker.transform.position, Configuration.Instance.ListenAuraRadius, true);
             
             if (speakerStation != null)
             {
-                Logger.Log($"[DEBUG] Игрок {speaker.player.channel.owner.playerID.characterName} вещает через СТАЦИОНАРНУЮ рацию (Freq: {speakerStation.Frequency})");
+                Logger.Log($"[VOICE_TEST] УСПЕХ! Игрок вещает через СТАЦИОНАРНУЮ рацию (Freq: {speakerStation.Frequency})");
                 isBroadcastingToRadio = true;
                 currentBroadcastFreq = speakerStation.Frequency;
                 shouldAllow = true;
-                shouldBroadcastOverRadio = true; 
+                shouldBroadcastOverRadio = true; // Заставляем движок включить радио-режим
             }
             else if (wantsToUseWalkieTalkie && speaker.hasUseableWalkieTalkie)
             {
-                Logger.Log($"[DEBUG] Игрок {speaker.player.channel.owner.playerID.characterName} вещает через ОБЫЧНУЮ рацию (Freq: {currentBroadcastFreq})");
+                Logger.Log($"[VOICE_TEST] Игрок вещает через ОБЫЧНУЮ карманную рацию.");
                 isBroadcastingToRadio = true;
             }
+            else
+            {
+                 Logger.Log($"[VOICE_TEST] Обычный локальный голос. В эфир не идет.");
+            }
 
-            // 2. Настраиваем слушателей
+            // 4. Настраиваем слушателей (кто это услышит)
             if (isBroadcastingToRadio)
             {
                 uint targetFreq = currentBroadcastFreq;
 
                 cullingHandler = (PlayerVoice spk, PlayerVoice lst) =>
                 {
-                    // А. Обычная дистанция
+                    // А. Обычная дистанция (слышно голос рядом в любом случае)
                     if (PlayerVoice.handleRelayVoiceCulling_Proximity(spk, lst)) return true;
 
-                    // Б. Слушатель с карманной рацией
+                    // Б. Слушатель с карманной рацией на нужной волне
                     if (lst.canHearRadio && lst.player.quests.radioFrequency == targetFreq) return true;
 
-                    // В. Слушатель в радиусе нашей баррикады
+                    // В. Слушатель без рации, но в радиусе нашей стационарной баррикады
                     var listenerStation = GetNearestStation(lst.transform.position, Configuration.Instance.ListenAuraRadius, false);
-                    if (listenerStation != null && listenerStation.Frequency == targetFreq) 
-                    {
-                        return true;
-                    }
+                    if (listenerStation != null && listenerStation.Frequency == targetFreq) return true;
 
                     return false;
                 };
@@ -175,7 +169,6 @@ namespace RealRadiostation
                 dict[GetPosHash(s.transform.position)] = new StationData { Frequency = s.Frequency, CanTransmit = s.CanTransmit };
             }
             DataStorage.Save(dict);
-            Logger.Log($"[DEBUG] Состояние {ActiveStations.Count} раций сохранено в файл.");
         }
 
         protected override void Unload()
@@ -184,7 +177,6 @@ namespace RealRadiostation
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
             PlayerVoice.onRelayVoice -= OnRelayVoice;
             Instance = null;
-            Logger.Log("RealRadiostation выгружен.");
         }
     }
 }
