@@ -24,16 +24,20 @@ namespace RealRadiostation
                 return;
             }
 
+            Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] {player.CharacterName} ищет рацию для смены частоты на {freq}...");
             var station = RealRadiostationPlugin.Instance.GetNearestStation(player.Position, RealRadiostationPlugin.Instance.Configuration.Instance.SetupCommandRadius, false);
             
             if (station == null)
             {
+                Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] Рация для {player.CharacterName} не найдена в радиусе {RealRadiostationPlugin.Instance.Configuration.Instance.SetupCommandRadius}.");
                 UnturnedChat.Say(caller, "Рядом нет радиостанции для настройки.", UnityEngine.Color.yellow);
                 return;
             }
 
             station.Frequency = freq;
             RealRadiostationPlugin.Instance.SaveAllStations();
+            
+            Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] Успех! Частота изменена на {freq}.");
             UnturnedChat.Say(caller, $"[ЭФИР] Частота станции установлена на {freq}.", UnityEngine.Color.green);
         }
     }
@@ -51,10 +55,12 @@ namespace RealRadiostation
         {
             UnturnedPlayer player = (UnturnedPlayer)caller;
 
+            Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] {player.CharacterName} пытается переключить режим рации...");
             var station = RealRadiostationPlugin.Instance.GetNearestStation(player.Position, RealRadiostationPlugin.Instance.Configuration.Instance.SetupCommandRadius, false);
 
             if (station == null)
             {
+                Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] Рация для {player.CharacterName} не найдена.");
                 UnturnedChat.Say(caller, "Рядом нет радиостанции для настройки.", UnityEngine.Color.yellow);
                 return;
             }
@@ -63,6 +69,7 @@ namespace RealRadiostation
             RealRadiostationPlugin.Instance.SaveAllStations();
 
             string mode = station.CanTransmit ? "Слушать и Говорить" : "Только слушать";
+            Rocket.Core.Logging.Logger.Log($"[DEBUG - Cmd] Успех! Новый режим: {mode}.");
             UnturnedChat.Say(caller, $"[ЭФИР] Режим станции изменен на: {mode}.", UnityEngine.Color.cyan);
         }
     }
