@@ -5,14 +5,16 @@ namespace RealRadiostation
     public class RealRadiostationConfig : IRocketPluginConfiguration
     {
         public ushort RadioBarricadeId;
-        public float ListenRadius; // Радиус, на котором слышно радио (например, 20 метров)
-        public float TransmitRadius; // Насколько близко нужно стоять, чтобы говорить в него (например, 3 метра)
+        public float ListenAuraRadius;
+        public float SetupCommandRadius;
+        public uint DefaultFrequency;
 
         public void LoadDefaults()
         {
-            RadioBarricadeId = 1466; 
-            ListenRadius = 20f; 
-            TransmitRadius = 3f; 
+            RadioBarricadeId = 1234;     // Замени на ID своей баррикады
+            ListenAuraRadius = 20f;      // Дальность ауры, внутри которой работает рация
+            SetupCommandRadius = 3f;     // Дальность, с которой можно настроить рацию через команду
+            DefaultFrequency = 333333;   // Частота по умолчанию при установке
         }
     }
 }
