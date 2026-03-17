@@ -1,33 +1,45 @@
 using HarmonyLib;
 using SDG.Unturned;
+using UnityEngine;
+using System.Reflection;
 
 namespace RealRadiostation
 {
-    // Указываем Harmony, какой именно метод игры мы хотим "взломать"
-    [HarmonyPatch(typeof(PlayerVoice), "askVoiceChat")]
+    // Мы меняем цель. Вместо askVoiceChat мы берем метод, который отвечает за ретрансляцию.
+    // Это самый стабильный метод для работы с голосом в Unturned.
+    [HarmonyPatch]
     public static class VoicePatch
     {
-        // Метод Prefix выполняется ДО оригинального кода игры
-        // Ключевое слово "ref" позволяет нам подменить параметр на лету
-        public static void Prefix(PlayerVoice __instance, ref bool wantsToUseRadio)
+        // Динамически находим метод, чтобы Harmony не ругался при загрузке
+        [HarmonyTargetMethod]
+        static MethodBase TargetMethod()
         {
-            // Если игрок УЖЕ держит переносную рацию в руках, плагин не вмешивается
-            if (wantsToUseRadio) return; 
+            return typeof(PlayerVoice).GetMethod("handleVoiceChatRelay", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        }
 
-            // Ищем стационарную радиостанцию в радиусе 5 метров
+        [HarmonyPrefix]
+        public static void Prefix(PlayerVoice __instance, ref bool wantsToUseRadio, ref bool shouldBroadcastOverRadio)
+        {
+            // Если игрок уже сам нажал кнопку рации (и она у него есть) — ничего не делаем
+            if (wantsToUseRadio) return;
+
+            // Проверяем, есть ли рядом наша стационарная радиостанция
             var station = RealRadiostationPlugin.Instance.GetNearestStation(__instance.player.transform.position, 5f);
 
             if (station != null && station.Mode == RadioMode.TransmitAndListen)
             {
-                // 1. Принудительно настраиваем рацию игрока на волну станции
+                // Если частота игрока не совпадает с частотой станции — настраиваем её
                 if (__instance.player.quests.radioFrequency != station.Frequency)
                 {
                     __instance.player.quests.sendSetRadioFrequency(station.Frequency);
                 }
 
-                // 2. ГЛАВНАЯ МАГИЯ: Мы обманываем игру, заставляя ее думать, 
-                // что игрок говорит в рацию, даже если ее нет в руках.
-                wantsToUseRadio = true; 
+                // КЛЮЧЕВОЙ МОМЕНТ ТЕХНОЛОГИИ:
+                // Мы подменяем аргументы метода прямо в полете.
+                // Игра думает, что игрок использует рацию (wantsToUseRadio)
+                // И мы подтверждаем, что это должно уйти в эфир (shouldBroadcastOverRadio)
+                wantsToUseRadio = true;
+                shouldBroadcastOverRadio = true;
             }
         }
     }
