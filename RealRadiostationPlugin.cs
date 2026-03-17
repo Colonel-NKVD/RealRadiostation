@@ -34,7 +34,7 @@ namespace RealRadiostation
         // ==========================================
         // ЯДРО ПЛАГИНА: ПЕРЕХВАТ И МАРШРУТИЗАЦИЯ ГОЛОСА
         // ==========================================
-        private void OnRelayVoice(PlayerVoice sender, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio, ref float spatialBlend)
+        private void OnRelayVoice(PlayerVoice sender, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
         {
             // Если игрок уже говорит в рацию (держит её в руках), не вмешиваемся
             if (wantsToUseRadio) return; 
