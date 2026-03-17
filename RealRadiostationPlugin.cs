@@ -2,6 +2,7 @@ using Rocket.Core.Plugins;
 using SDG.Unturned;
 using UnityEngine;
 using System.Collections.Generic;
+using HarmonyLib;
 using Logger = Rocket.Core.Logging.Logger;
 
 namespace RealRadiostation
@@ -10,59 +11,26 @@ namespace RealRadiostation
     {
         public static RealRadiostationPlugin Instance;
         public List<RadioStationComponent> ActiveStations = new List<RadioStationComponent>();
-        
-        public string PluginVersion = "2.0-PRO";
+        private Harmony harmony;
 
         protected override void Load()
         {
             Instance = this;
-            Logger.Log($"--- [RealRadiostation] ВЕРСИЯ: {PluginVersion} ---");
-            Logger.Log("[RealRadiostation] Загрузка профессиональной архитектуры...");
+            Logger.Log("--- [RealRadiostation] ВЕРСИЯ: 4.0-HARMONY (DudeVoice Tech) ---");
 
-            // 1. Подписываемся на события загрузки карты и спавна объектов
+            // Инициализация Harmony по методу DudeVoiceChat
+            harmony = new Harmony("com.realradiostation.patch");
+            harmony.PatchAll(); // Автоматически найдет VoicePatch.cs и применит его
+
             Level.onPostLevelLoaded += OnLevelLoaded;
             BarricadeManager.onBarricadeSpawned += OnBarricadeSpawned;
-            
-            // 2. ПОДПИСЫВАЕМСЯ НА ОФИЦИАЛЬНЫЙ КАНАЛ ГОЛОСА UNTURNED
-            PlayerVoice.onRelayVoice += OnRelayVoice;
 
             if (Level.isLoaded) ScanStations();
-
-            Logger.Log("[RealRadiostation] Плагин успешно интегрирован в ядро игры.");
+            
+            Logger.Log("[RealRadiostation] Плагин загружен и патчи применены.");
         }
 
-        // ==========================================
-        // ЯДРО ПЛАГИНА: ПЕРЕХВАТ И МАРШРУТИЗАЦИЯ ГОЛОСА
-        // ==========================================
-        private void OnRelayVoice(PlayerVoice sender, bool wantsToUseRadio, ref bool shouldAllow, ref bool shouldBroadcastOverRadio)
-        {
-            // Если игрок уже говорит в рацию (держит её в руках), не вмешиваемся
-            if (wantsToUseRadio) return; 
-
-            // Проверяем, есть ли рядом с говорящим стационарная радиостанция (радиус 5 метров)
-            var station = GetNearestStation(sender.player.transform.position, 5f);
-
-            if (station != null && station.Mode == RadioMode.TransmitAndListen)
-            {
-                // 1. Принудительно переключаем частоту игрока на частоту станции
-                if (sender.player.quests.radioFrequency != station.Frequency)
-                {
-                    sender.player.quests.sendSetRadioFrequency(station.Frequency);
-                }
-
-                // 2. МАГИЯ: Приказываем серверу транслировать этот локальный голос на всю карту по радио!
-                shouldBroadcastOverRadio = true;
-
-                // Для отладки (потом можно закомментировать)
-                Logger.Log($"[ЭФИР] Игрок {sender.player.channel.owner.playerID.characterName} вещает через стационарную рацию на волне {station.Frequency}!");
-            }
-        }
-
-        // ==========================================
-        // МЕНЕДЖМЕНТ СТАНЦИЙ
-        // ==========================================
         private void OnLevelLoaded(int level) => ScanStations();
-        
         private void OnBarricadeSpawned(BarricadeRegion region, BarricadeDrop drop) 
         { 
             if (drop.asset.id == 1466) ScanStations(); 
@@ -72,7 +40,6 @@ namespace RealRadiostation
         {
             ActiveStations.Clear();
             if (BarricadeManager.regions == null) return;
-            
             var savedData = DataStorage.Load();
 
             foreach (var region in BarricadeManager.regions)
@@ -85,7 +52,6 @@ namespace RealRadiostation
                                    ?? drop.model.gameObject.AddComponent<RadioStationComponent>();
                         
                         string hash = GetPosHash(drop.model.position);
-                        
                         if (savedData != null && savedData.ContainsKey(hash))
                         {
                             comp.Frequency = savedData[hash].Frequency;
@@ -101,7 +67,6 @@ namespace RealRadiostation
                     }
                 }
             }
-            Logger.Log($"[Система] Зарегистрировано стационарных раций: {ActiveStations.Count}");
         }
 
         public string GetPosHash(Vector3 pos) => $"{pos.x:F1}_{pos.y:F1}_{pos.z:F1}";
@@ -136,11 +101,10 @@ namespace RealRadiostation
 
         protected override void Unload()
         {
-            // Отписываемся от всех событий при выключении плагина
             Level.onPostLevelLoaded -= OnLevelLoaded;
             BarricadeManager.onBarricadeSpawned -= OnBarricadeSpawned;
-            PlayerVoice.onRelayVoice -= OnRelayVoice;
             
+            harmony?.UnpatchAll("com.realradiostation.patch");
             ActiveStations.Clear();
             Instance = null;
         }
